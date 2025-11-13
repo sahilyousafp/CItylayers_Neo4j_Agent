@@ -87,12 +87,18 @@
                 <div class="data-sources-header">Data Sources</div>
                 <div class="data-sources-list">
                     <div class="data-source" id="source-citylayers" style="display: none;">
-                        <span class="source-icon">🏙️</span>
-                        <span class="source-name">CityLayers</span>
+                        <input type="checkbox" id="toggle-citylayers" class="source-checkbox" checked>
+                        <label for="toggle-citylayers" class="source-label">
+                            <span class="source-icon">🏙️</span>
+                            <span class="source-name">CityLayers</span>
+                        </label>
                     </div>
                     <div class="data-source" id="source-osm" style="display: none;">
-                        <span class="source-icon">🗺️</span>
-                        <span class="source-name">OpenStreetMap</span>
+                        <input type="checkbox" id="toggle-osm" class="source-checkbox" checked>
+                        <label for="toggle-osm" class="source-label">
+                            <span class="source-icon">🗺️</span>
+                            <span class="source-name">OpenStreetMap</span>
+                        </label>
                     </div>
                 </div>
             </div>

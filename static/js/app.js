@@ -6,9 +6,13 @@
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceOSM = document.getElementById("source-osm");
+    const toggleCityLayers = document.getElementById("toggle-citylayers");
+    const toggleOSM = document.getElementById("toggle-osm");
     let currentVizMode = "pydeck-heatmap";
     let hasNeo4jData = false;
     let hasOSMData = false;
+    let cityLayersEnabled = true;
+    let osmEnabled = true;
 
     // Update data sources display
     function updateDataSources() {
@@ -23,6 +27,34 @@
         } else {
             sourceOSM.style.display = "none";
         }
+    }
+
+    // Handle data source toggle
+    function handleDataSourceToggle() {
+        cityLayersEnabled = toggleCityLayers.checked;
+        osmEnabled = toggleOSM.checked;
+        
+        // Refresh the current visualization with the new data source settings
+        setVizMode(currentVizMode);
+        
+        // Show a message about what's enabled
+        const enabledSources = [];
+        if (cityLayersEnabled) enabledSources.push("CityLayers");
+        if (osmEnabled) enabledSources.push("OpenStreetMap");
+        
+        if (enabledSources.length > 0) {
+            console.log("Active data sources:", enabledSources.join(", "));
+        } else {
+            console.log("No data sources selected");
+        }
+    }
+
+    // Add event listeners for checkboxes
+    if (toggleCityLayers) {
+        toggleCityLayers.addEventListener("change", handleDataSourceToggle);
+    }
+    if (toggleOSM) {
+        toggleOSM.addEventListener("change", handleDataSourceToggle);
     }
 
     // Leaflet Map
