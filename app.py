@@ -153,17 +153,23 @@ def _render_markdown_to_html(text: str) -> str:
     # Try markdown2
     try:
         import markdown2  # type: ignore
-        return markdown2.markdown(content, extras=["fenced-code-blocks", "break-on-newline"])
+        html = markdown2.markdown(content, extras=["fenced-code-blocks", "break-on-newline", "tables"])
+        # Wrap tables in a responsive container
+        html = html.replace('<table>', '<div class="table-wrapper"><table>').replace('</table>', '</table></div>')
+        return html
     except Exception:
         pass
     # Try python-markdown
     try:
         import markdown  # type: ignore
-        return markdown.markdown(
+        html = markdown.markdown(
             content,
-            extensions=["extra", "sane_lists", "nl2br", "fenced_code"],
+            extensions=["extra", "sane_lists", "nl2br", "fenced_code", "tables"],
             output_format="html5",
         )
+        # Wrap tables in a responsive container
+        html = html.replace('<table>', '<div class="table-wrapper"><table>').replace('</table>', '</table></div>')
+        return html
     except Exception:
         # Fallback: preserve formatting minimally
         escaped = (

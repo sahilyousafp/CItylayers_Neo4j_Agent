@@ -291,6 +291,7 @@ html, body {
 .chat-window {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--margin-1);
   scrollbar-width: none;
   min-height: 0;
@@ -419,23 +420,26 @@ html, body {
 .chat-window .assistant code {
   background-color: #E8E8E8;
   color: #c7254e;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   font-family: 'Courier New', Courier, monospace;
   border: 1px solid #ddd;
+  word-break: break-word;
 }
 
 .chat-window .assistant pre {
   background-color: #f8f9fa;
-  padding: var(--margin-2);
+  padding: var(--margin-1);
   border-radius: 8px;
   overflow-x: auto;
+  overflow-y: hidden;
   margin: var(--margin-2) 0;
   max-width: 100%;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-all;
   border: 1px solid #e1e4e8;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -488,16 +492,23 @@ html, body {
   border-radius: 4px;
 }
 
+.chat-window .assistant .table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: var(--margin-2) 0;
+  -webkit-overflow-scrolling: touch;
+}
+
 .chat-window .assistant table {
   width: 100%;
   border-collapse: collapse;
-  margin: var(--margin-2) 0;
+  margin: 0;
   font-size: 13px;
-  display: block;
-  overflow-x: auto;
   max-width: 100%;
   border: 1px solid var(--tertiary-color);
   border-radius: 6px;
+  display: table;
 }
 
 .chat-window .assistant table th,
@@ -505,6 +516,9 @@ html, body {
   padding: 10px var(--margin-1);
   border: 1px solid var(--tertiary-color);
   text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 80px;
 }
 
 .chat-window .assistant table th {
