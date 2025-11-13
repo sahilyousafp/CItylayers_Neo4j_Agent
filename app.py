@@ -92,23 +92,31 @@ def chat_endpoint():
                 lat = p.get("latitude")
                 lon = p.get("longitude")
                 if lat and lon:
-                    weather_result = meteostat_agent.process(
-                        latitude=float(lat),
-                        longitude=float(lon),
-                        interval="daily"
-                    )
-                    if weather_result.get("ok") and weather_result.get("data"):
-                        latest = weather_result["data"][-1]
-                        temp = latest.get("tavg", "N/A")
-                        answer += f"\n\n**Weather Data**: Temperature: {temp}°C"
+                    try:
+                        weather_result = meteostat_agent.process(
+                            latitude=float(lat),
+                            longitude=float(lon),
+                            interval="daily"
+                        )
+                        if weather_result.get("ok") and weather_result.get("data"):
+                            latest = weather_result["data"][-1]
+                            temp = latest.get("tavg", "N/A")
+                            prcp = latest.get("prcp", "N/A")
+                            date = latest.get("date", "")
+                            answer += f"\n\n**Weather Data** ({date}): Temperature: {temp}°C, Precipitation: {prcp}mm"
+                        elif weather_result.get("error"):
+                            # Check if it's an import error
+                            if "not installed" in weather_result.get("error", ""):
+                                answer += f"\n\n**Weather Data**: ⚠️ Meteostat library not installed. Run: `pip install meteostat`"
+                            else:
+                                answer += f"\n\n**Weather Data**: ⚠️ {weather_result['error']}"
+                    except Exception as e:
+                        answer += f"\n\n**Weather Data**: ⚠️ Error: {str(e)}"
                     break
         
         # If no result yet, return error
         if not result or not result["ok"]:
             return jsonify({"ok": False, "error": "No data available from selected sources"}), 500
-        
-        answer = result["answer"]
-        context_records = result["context_records"]
         
         # Store context for map visualization
         store["last_context_records"] = context_records
