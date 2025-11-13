@@ -6,8 +6,9 @@
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceOSM = document.getElementById("source-osm");
-    const toggleCityLayers = document.getElementById("toggle-citylayers");
-    const toggleOSM = document.getElementById("toggle-osm");
+    const collapseBtn = document.getElementById("collapseBtn");
+    const expandBtn = document.getElementById("expandBtn");
+    const leftContainer = document.querySelector(".left-container");
     let currentVizMode = "pydeck-heatmap";
     let hasNeo4jData = false;
     let hasOSMData = false;
@@ -29,11 +30,42 @@
         }
     }
 
+    // Handle collapse/expand
+    if (collapseBtn) {
+        collapseBtn.addEventListener("click", () => {
+            leftContainer.classList.add("collapsed");
+            expandBtn.classList.add("show");
+        });
+    }
+
+    if (expandBtn) {
+        expandBtn.addEventListener("click", () => {
+            leftContainer.classList.remove("collapsed");
+            expandBtn.classList.remove("show");
+        });
+    }
+
+    // Handle data source button clicks
+    function setupDataSourceToggles() {
+        if (sourceCityLayers) {
+            sourceCityLayers.addEventListener("click", () => {
+                cityLayersEnabled = !cityLayersEnabled;
+                sourceCityLayers.classList.toggle("active");
+                handleDataSourceToggle();
+            });
+        }
+
+        if (sourceOSM) {
+            sourceOSM.addEventListener("click", () => {
+                osmEnabled = !osmEnabled;
+                sourceOSM.classList.toggle("active");
+                handleDataSourceToggle();
+            });
+        }
+    }
+
     // Handle data source toggle
     function handleDataSourceToggle() {
-        cityLayersEnabled = toggleCityLayers.checked;
-        osmEnabled = toggleOSM.checked;
-        
         // Refresh the current visualization with the new data source settings
         setVizMode(currentVizMode);
         
@@ -49,13 +81,8 @@
         }
     }
 
-    // Add event listeners for checkboxes
-    if (toggleCityLayers) {
-        toggleCityLayers.addEventListener("change", handleDataSourceToggle);
-    }
-    if (toggleOSM) {
-        toggleOSM.addEventListener("change", handleDataSourceToggle);
-    }
+    // Initialize data source toggles
+    setupDataSourceToggles();
 
     // Leaflet Map
     // We maintain Leaflet objects; PyDeck HTML will replace the container content

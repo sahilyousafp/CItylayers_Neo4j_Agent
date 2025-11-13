@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
+    <button id="expandBtn" class="expand-btn" aria-label="Expand panel">▶</button>
     <div class="main-map">
         <div class="left-container">
             <div class="panel category">
@@ -22,6 +23,7 @@
                                 <div class="logo-block"></div>
                             </div>
                             <h1 class="logo-text">CITY LAYERS</h1>
+                            <button id="collapseBtn" class="collapse-btn" aria-label="Collapse panel">◀</button>
                         </div>
                         <div class="text">
                             <p>Click on the layers to include them in the map.</p>
@@ -86,20 +88,14 @@
             <div id="dataSources" class="data-sources-panel">
                 <div class="data-sources-header">Data Sources</div>
                 <div class="data-sources-list">
-                    <div class="data-source" id="source-citylayers" style="display: none;">
-                        <input type="checkbox" id="toggle-citylayers" class="source-checkbox" checked>
-                        <label for="toggle-citylayers" class="source-label">
-                            <span class="source-icon">🏙️</span>
-                            <span class="source-name">CityLayers</span>
-                        </label>
-                    </div>
-                    <div class="data-source" id="source-osm" style="display: none;">
-                        <input type="checkbox" id="toggle-osm" class="source-checkbox" checked>
-                        <label for="toggle-osm" class="source-label">
-                            <span class="source-icon">🗺️</span>
-                            <span class="source-name">OpenStreetMap</span>
-                        </label>
-                    </div>
+                    <button class="data-source-btn active" id="source-citylayers" style="display: none;" data-source="citylayers">
+                        <span class="source-icon">🏙️</span>
+                        <span class="source-name">CityLayers</span>
+                    </button>
+                    <button class="data-source-btn active" id="source-osm" style="display: none;" data-source="osm">
+                        <span class="source-icon">🗺️</span>
+                        <span class="source-name">OpenStreetMap</span>
+                    </button>
                 </div>
             </div>
         </div>
