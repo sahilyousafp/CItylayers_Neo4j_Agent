@@ -1,0 +1,126 @@
+.commentpanel {
+    width: 100%;
+    height: 23%;
+    display: flex;
+    position: absolute;
+    bottom: 0;
+    z-index: 23;
+    align-items: flex-start;
+    align-content: flex-start;
+    justify-content: flex-start;
+    justify-items: flex-end;
+    flex-wrap: wrap;
+    transform: translateY(150px);
+    will-change: transform;
+    transition: all .3s ease-in-out;
+}
+
+.commentpanel.open {
+    transform: translateY(0px);
+    transition: all .3s ease-in-out;
+}
+
+.commentpanelclose {
+    background-color: var(--primary-color);
+    border: solid 1px var(--secondary-color);
+    border-radius: 30px;
+    height: 30px;
+    width: 30px;
+    margin: 0 12px;
+    will-change: transform;
+    transition: transform .3s ease-in-out;
+}
+
+.commentpanelclose.open {
+    transform: rotate(180deg);
+    transition: transform .3s ease-in-out;
+}
+
+.commentpanelclose .chevron {
+    border: solid var(--secondary-color);
+    border-width: 0 1px 1px 0;
+    display: inline-block;
+    padding: 4px;
+    margin-bottom: 4px;
+    transform: rotate(45deg);
+    -webkit-transform: rotate(45deg);
+    width: auto;
+    height: auto;
+}
+
+
+.commentcontainer {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    padding: var(--margin-1);
+    overflow-x: scroll;
+    scrollbar-width: none;
+    color: var(--secondary-color);
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: var(--margin-1);
+    -webkit-overflow-scrolling: touch; /* Needed to work on iOS Safari */
+}
+
+.commentpane {
+    background-color: var(--primary-color);
+    max-width: 400px;
+    width: fit-content;
+    min-width: 200px;
+    height: 136px;
+    padding: var(--margin-1);
+    display: inline-flex;
+    border-radius: 10px;
+    box-sizing: border-box;
+    font-size: 12px;
+    text-wrap: pretty;
+    scroll-snap-align: start;
+    margin-left: var(--margin-1); 
+    cursor: pointer;
+}
+
+.commentpane:focus {
+    border: solid 1px var(--secondary-color);
+}
+
+.commentsymbol {
+    font-size: 30px;
+    transform: translateY(-10px);
+}
+
+.commentsearch {
+    font-size: 12px;
+    height: 30px;
+    width: 200px;
+    display: flex;
+    flex-direction: row;
+    background-color: var(--primary-color);
+    color: var(--secondary-color);
+    border: solid 1px var(--secondary-color);
+    border-radius: 20px;
+    box-sizing: border-box;
+    padding: 0 var(--margin-1);
+}
+
+.commentsearch>input[type=text] {
+    border: none;
+    width: 100%;
+    padding: 0;
+    background-color: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--secondary-color);
+}
+
+.commentsearch>input[type=text]::placeholder {
+    color: var(--secondary-color);
+}
+
+.commentsearch>input[type=text]:active {
+    border: none;
+    width: 100%;
+    background-color: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--secondary-color);
+}

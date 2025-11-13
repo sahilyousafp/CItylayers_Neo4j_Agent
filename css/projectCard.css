@@ -1,0 +1,480 @@
+
+.legalbutton {
+    color: var(--secondary-color);
+    font-size: 14px;
+}
+
+.closebutton{
+    height: auto;
+    width: auto;
+}
+
+.imagecontainer {
+    grid-column-start: 1;
+    grid-column-end: 3;
+    grid-row-start: 8;
+    display: flex;
+    flex-direction: column;
+    row-gap: 10px;
+    column-gap: 5%;
+    /* height: 80%; */
+    overscroll-behavior-x: auto;
+    /* transition: all .3s ease-in-out; */
+    /* scroll-padding-left: 100px; */
+    width: inherit;
+    max-width: 100%;
+    /* overflow-x: scroll; */
+    height: auto;
+    justify-content: space-between;
+    
+}
+
+.projectButton{
+    width: 100%;
+    height: 50%;
+    border-radius: 2px;
+    background-color: var(--secondary-color);
+    color: var(--tertiary-color);
+    border: white 2px solid;
+    margin-top: 5%;
+    padding: 5%;
+    grid-column-start: 2;
+    grid-row-start: 1;
+    grid-column-end: 3;
+    display: inline-grid;
+    grid-row-end: 2;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.legalheader{
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    align-content: flex-start;
+    justify-content: space-between;
+    justify-items: flex-start;
+    width: 100%;
+    height: 10%;
+    flex-wrap: wrap;
+}
+.legalheader .logo{
+    width: 100px;
+}
+
+
+.legalbodycontent > a{
+    text-decoration: underline;
+    width: 150px;
+}
+
+.legaltitle{
+    font-size: 40;
+    font-weight: bold;
+    letter-spacing: -2;
+    height: auto;
+}
+.legaltext{
+    height: auto;
+}
+.legaltextframed {
+    border: var(--secondary-color) 1px solid;
+    border-radius: 5px;
+    padding: 5px;
+    padding-left: 15px;
+    height: auto;
+}
+
+.panel{
+    /* box-shadow: 0px 3px 3px 1px rgba(58, 72, 76, 20%); */
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start; /*end*/
+    padding: 24px;
+    padding-bottom: 10%;
+    row-gap: 3%;
+}
+
+.legalbodycontent{
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: 1fr 3fr 1fr;
+    grid-column-gap: 50px;
+    grid-row-gap: 20px;
+    height: 100%;
+}
+.buttoncontainer{
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12;
+    -moz-column-gap: 40px;
+    column-gap: 40px;
+    row-gap: 20px;
+    text-align: center;
+    align-items: center;
+    justify-content: flex-end;
+    justify-items: flex-end;
+    align-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.buttonfooter{
+    height: auto;
+    padding-bottom: 20%;
+}
+
+.buttoncontainer > .primary-button {
+    /* display: flex; */
+    align-content: center;
+    /* height: 100px; */
+    width: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    /* flex-direction: column; */
+}
+
+.buttoncontainer{
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0px;
+    -moz-column-gap: 40px;
+    column-gap: 40px;
+    row-gap: 40px;
+    text-align: center;
+    align-items: center;
+    /* padding-top: 50%; */
+}
+
+
+.onecol{
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+
+}
+.team{
+    display: grid;
+    font-size: 10pt;
+    grid-template-columns: 1fr;
+    grid-column-start: 1;
+}
+
+.teammember {
+    display: flex;
+    flex-direction: row;
+    column-gap: 110px;
+    justify-self: flex-start;
+    width: 100%;
+    justify-content: space-between;
+    padding-bottom: 2%;
+    border-bottom: var(--secondary-color) 01px solid;
+    padding-top: 2%;
+}
+.teammember>a {
+    font-weight: bold;
+    font-size: 12pt;
+    color: var(--secondary-color);
+}
+.teammember div:nth-child(2) {
+    text-align: right;
+}
+.period {
+    grid-row-start: 4;
+    grid-column-start: 1;
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    grid-row-gap: 1px;
+    height: auto;
+    justify-self: flex-start;
+    align-self: flex-start;
+    width: 50%;
+    font-size: 10pt
+}
+.period>div:nth-child(odd) {
+    font-weight: bold;
+}
+
+.slogan {
+    grid-column-start: 1;
+    grid-row-start: 2;
+    justify-self: flex-start;
+    align-self: center;
+    font-weight: bold;
+    font-size: 18pt;
+    letter-spacing: -2pt;
+
+}
+
+.projectdescription {
+    grid-column-start: 1;
+    grid-row-start: 7;
+    grid-column-end: 3;
+    display: inline-grid;
+    grid-row-end: 8;
+    white-space: break-spaces;
+}
+
+.partner{
+    height: auto;
+    width: 100%;
+    grid-column-start: 1;
+    grid-row-start: 3;
+    grid-column-end: 3;
+    
+    grid-row-end: 4;
+    display: flex;
+    flex-direction: row;
+    align-self: flex-end;
+    row-gap: 10px;
+    column-gap: 15px;
+    flex-wrap: wrap;
+
+    margin-top: 20%;
+    margin-bottom: 10%;
+    justify-content: center;
+  }
+
+  .partner > img {
+    height: 25px;
+    width: auto;
+    cursor: pointer;
+}
+/****/
+
+
+@media only screen and (min-width: 772px) {
+    .header{
+        background-color: var(--primary-color);
+    }
+    .legalpanel {
+        
+        display: flex;
+        flex-direction: column;
+        /* flex-wrap: wrap; */
+        /* padding: 15%; */
+        padding-top: 3%;
+        /* justify-content: flex-end; */
+        justify-content: space-between;
+        row-gap: 20px;
+        /* padding-bottom: 120px; */
+    }
+    .buttonfooter{
+        height: auto;
+        padding-bottom: 2%;
+    }
+
+    .legalbutton {
+        font-size: 14px;
+    }
+    .legalheader{
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        align-content: flex-start;
+        justify-content: space-between;
+        justify-items: flex-start;
+        width: 100%;
+        height: 10%;
+        flex-wrap: wrap;
+    }
+    .legaltitle{
+        font-size: 40;
+        font-weight: bold;
+        letter-spacing: -2;
+        height: auto;
+    }
+    .legaltextframed {
+        border: var(--secondary-color) 1px solid;
+        border-radius: 5px;
+        padding: 5px;
+        height: auto;
+        width: 300px;
+        /* padding-left: 15px; */
+    }
+    
+    .legalsubtitle{
+        grid-area: 1 / 1 / 1 / span 2;
+    }
+
+    .imagecontainer{
+        padding-top: 0px;
+    }
+    .team{
+        display: grid;
+        font-size: 10pt;
+        grid-template-columns: 1fr;
+        grid-row-start: 9;
+        grid-column-start: 2;
+        grid-column-end: 3;
+    }
+
+    .main {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .legaltitle {
+        font-size: 14;
+        /* font-weight: bold; */
+        letter-spacing: 2;
+        height: auto;
+        grid-column-start: 1;
+        grid-column-end: 2;
+        grid-row-start: 1;
+        grid-row-end: 2;
+    }
+
+    .legalbody{
+        align-items: stretch;
+        align-content: flex-start;
+        justify-content: space-between;
+        justify-items: flex-start;
+        width: 100%;
+        height: 100%;
+        display: grid;
+        /* height: 80%; */
+        /* flex-wrap: wrap; */
+        /* overflow: scroll; */
+        grid-template-rows: 1fr;
+        grid-template-columns: 1fr 1fr;
+        grid-row-gap: 20px;
+        padding-top: 5%;
+        row-gap: 40px;
+        /* padding-bottom: 2%; */
+    }
+    .recognition {
+        grid-column-start: 1;
+        grid-row-start: 3;
+        font-weight: normal;
+        font-size: 12pt;
+    }
+    .cover {
+        width: 100%;
+        padding: 5%;
+        justify-content: center;
+        justify-self: center;
+        grid-column-start: 1;
+        grid-row-start: 5;
+        grid-row-end: 5;
+        PADDING: 0;
+        MARGIN: 0;
+        height: -moz-max-content;
+        height: max-content;
+        grid-column-end: 3;
+        display: grid;
+    }
+    .slogan {
+        
+        font-size: 28pt;
+        letter-spacing: 0pt;
+    
+    }
+
+    .period{
+        grid-row: 3;
+    }
+    
+    .imagecontainer {
+        flex-direction: column;
+        column-gap: 5%;
+        /* height: 80%; */
+        overscroll-behavior-x: auto;
+        /* transition: all .3s ease-in-out; */
+        /* scroll-padding-left: 100px; */
+        width: auto;
+        overflow-x: scroll;
+        height: auto;
+        justify-content: space-between;
+        
+        max-width: 100%;
+        width: 100%;
+        scrollbar-width: none;
+
+        grid-row-start: 8;
+    }
+    .imagecontainer > img {
+        max-height: 600px;
+        height: auto;
+    }
+
+
+    .projectButton {
+        border-radius: 5px;
+        background-color: var(--secondary-color);
+        color: var(--tertiary-color);
+        grid-column-start: 2;
+        grid-row-start: 5;
+        grid-column-end: 3;
+        grid-row-end: 6;
+        width: 200px;
+        height: 50px;
+        justify-self: flex-end;
+        align-self: flex-end;
+        padding: 3%;
+        z-index: 4;
+    }
+    .projectButton:nth-of-type(2) {
+        grid-row-start: 6;
+        grid-row-end: 7;
+    }
+    
+    .projectdescription {
+        grid-column-start: 1;
+        grid-row-start: 7;
+        grid-column-end: 3;
+        display: inline-grid;
+        grid-row-end: 8;
+    }
+    .projectstatus {
+        grid-column-start: 1;
+        grid-row-start: 3;
+        grid-column-end: 3;
+        white-space: pre-line;
+        grid-row-end: 4;
+        justify-self: start;
+        align-self: flex-start;
+    }
+    .partner {
+        height: auto;
+        width: 100%;
+        grid-column-start: 1;
+        grid-row-start: 10;
+        grid-column-end: 3;
+        grid-row-end: 10;
+        display: flex;
+        flex-direction: row;
+        align-self: flex-end;
+        justify-self: center;
+        justify-content: space-evenly;
+        align-items: center;
+        align-content: center;
+        flex-wrap: nowrap;
+        justify-self: center;
+        align-self: center;
+        padding: 0px;
+        margin-top: 10%;
+        margin-bottom: 0%;
+    }
+
+    .legalbody > .categoryheader {
+        grid-column-start: 1;
+        grid-row-start: 3;
+        grid-column-end: 2;
+        display: inline-grid;
+        grid-row-end: 4;
+    }
+    .partner > img {
+        height: 50px;
+    }
+    
+
+}
+

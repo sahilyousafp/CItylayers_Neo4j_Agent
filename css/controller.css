@@ -1,0 +1,420 @@
+.controllerbody{
+    padding: 0px;
+}
+
+
+
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 1px;
+    position: relative;
+    background: var(--secondary-color);
+    outline: none;
+    /* margin-top: 30px; */
+    padding: 0px;
+}
+
+/* input[type=range]::-webkit-slider-thumb:hover {
+    background: #C4B5F0;
+  }  */
+
+
+/* input[type=range]::-moz-range-thumb{
+  appearance: none;
+  pointer-events: all;
+  width: 16px;
+  height: 16px;
+  background-color: #C4B5F0;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 1;
+} 
+*/
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    background-color: var(--thumb-color);
+    border-radius: 50%;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    background-color: var(--thumb-color);
+    border-radius: 50%;
+}
+
+.ranges-container{
+    display: flex;
+    justify-content: space-between;
+    text-transform: capitalize;
+    margin-top: 0px;
+    height: 100%;
+    width: 100%;
+}
+
+.question-container {
+    /* margin-bottom: 40px; */
+    width: 100%;
+    height: auto;
+    padding: 10%;
+    display: flex;
+    flex-direction: column;
+    padding: 0px;
+    /* margin-top: 5%; */
+}
+
+.tagcontainer {
+    margin-top: 0px;
+    display: flex;
+    gap: 10px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-bottom: 5px;
+}
+
+/* .tag input[type=checkbox]:checked~.tag-element {
+    background-color: var(--thumb-color);
+} */
+
+.tag{
+    display: inline-block;
+    position: relative;
+    /* border: 1px solid #cdcdcd; */
+    border-radius: 20px;
+    overflow: visible;
+    height: 30px;
+    width: fit-content;
+    background-color: #ebf0f2;
+    padding: 0px 6px;
+
+}
+
+.tag {
+    border: 1px solid var(--secondary-color);
+    z-index: 1;
+}
+
+.tag .tag-element {
+    padding: 4px 12px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    align-items: center;
+    justify-items: center;
+    justify-content: center;
+    height: inherit;
+    width: 100%;
+    line-height: 120%;
+    border-radius: inherit;
+    border: none;
+}
+
+.tag:has(> input[type=checkbox]:checked) {
+    background-color: var(--secondary-color); 
+    color: var(--primary-color);
+}
+.tag:has(> input[type=checkbox]:disabled) {
+    background-color: var(--primary-color); 
+    color: #9bbbc0;
+    border: 1px solid  #9bbbc0;
+}
+
+.tag:has(> input[type=checkbox]:disabled:checked) {
+    background-color: #d9e2e3;; /*#9bbbc0;*/ 
+    color: var(--secondary-color);
+}
+
+.tag input:checked {
+  background-color: var(--primary-color);
+}
+
+/* .tag input[type=checkbox]:checked~.tag-element {
+    background-color: var(--secondary-color);
+    color: var(--primary-color);
+} */
+
+.tag input:disabled {
+    cursor: not-allowed;
+}
+
+.tag input {
+    cursor: pointer;
+    border: solid 2px var(--secondary-color);
+}
+
+  
+
+.ranges-container>span:nth-child(2) {
+    text-align: left;
+}
+.ranges-container>span:nth-child(2) {
+    text-align: right;
+}
+
+.tag .tag-element {
+    font-size: 8pt;
+    padding: 0px 4px;
+}
+
+.tagcontainer .tag {
+    margin-top: 0px;
+    margin-right: 0px;
+}
+
+.configheader {
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    height: auto;
+    align-items: flex-start;
+    align-content: center;
+    justify-content: center;
+    justify-items: center;
+    text-align: left;
+    padding: 5px;
+    row-gap: 10px;
+  }
+
+  .controller.container {
+    /* .panel.category
+    max-width: 350px; */
+    /* height: 100vh; */
+    padding: 0px;
+    row-gap: var(--margin-1);
+    font-size: 12px;
+    overflow-y: scroll;
+    /* padding-bottom: 100px; */
+    scrollbar-width: none;
+    width: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.configheader > .text{
+    padding: 5%;
+    padding-top: 10%;
+    text-align: center;
+    font-size: 12pt;
+    row-gap: 0px;
+    display: flex;
+    flex-direction: column;
+}
+
+.configheader > .text > .text{
+    
+    padding-top: 0px;
+}
+
+.subcontainer{
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-around;
+    width: 100%;
+    background-color: var(--primary-color);
+    border-radius: 5px;
+    padding: 2%;
+    padding-top: 7%;
+    padding-bottom: 7%;
+
+}
+
+.subcontainer.vischoice > .vischoice{
+    padding: 0%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    box-sizing: border-box;
+    row-gap: 10px;
+}
+
+.subcontainer.vischoice{
+    display: flex;
+    flex-direction: row;
+}
+
+.subcontainer.vischoice > .vischoice.disabled{
+    
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.vischoice.selected > .icon{
+    border: var(--secondary-color) solid 2px;
+}
+
+.vischoice > .icon{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 50px;
+    height: 50px;
+    /* border: var(--secondary-color) 1px solid; */
+    padding: 5px;
+    border-radius: 5px;
+    background-color: var(--primary-color);
+    box-shadow: 3px 2px 6px 1px rgba(1, 71, 81, 0.25);
+}
+
+.vischoice > .icon:active{
+    border: var(--secondary-color) solid 3px;
+}
+.vischoice > .icon::checked{
+    border: var(--secondary-color) solid 3px;
+}
+
+.disabled{
+    filter: grayscale(1);
+    cursor: not-allowed;
+}
+
+.vischoice:disabled{
+    color: var(--tertiary-color);
+    opacity: 70%;
+}
+
+.vischoice:disabled:hover{
+    cursor:not-allowed;
+}
+
+.vischoice > .descr{
+    display: flex;
+    flex-direction: row;
+}
+
+.vischoice > .descr > .text{
+    text-transform: capitalize;
+    font-size: 10pt;
+    font-weight: 300;
+    padding-top: 5px;
+    text-decoration: underline;
+    padding: 0px;
+}
+
+.vischoice > input[type="radio"] {
+    appearance: none;
+    --webkit-appearance: none;
+}
+
+.descr{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    text-transform: capitalize;
+}
+
+.descr > .material-symbols-outlined{
+    font-size: 12pt;
+    padding: 0px;
+    width: auto;
+    font-weight: 200;
+}
+
+.gradient.subcontainer{
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+}
+
+.gradient.subcontainer > hr{
+
+    --start: var(--primary-color);
+    --end: #ff0000;
+    height: 15px;
+    padding: 0px;
+    grid-column-start: 1;
+    grid-column-end: 3;
+    display: flex;
+    border-radius: 6px;
+    fill: var(--secondary-color);
+    background: linear-gradient(90deg, var(--start) 0%, var(--end) 100%);;
+    border: solid 1px var(--tertiary-color);
+}
+
+input[type="color"] {
+    --radius: 12px;
+	-webkit-appearance: none;
+	border: none;
+	width: calc(var(--radius) * 2);
+    height: calc(var(--radius) * 2);
+    border-radius: var(--radius);
+    margin-left: 5px;
+    margin-right: 5px;
+    border: solid 1px var(--tertiary-color);
+    cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+	padding: 0;
+    border-radius: var(--radius);
+}
+input[type="color"]::-webkit-color-swatch {
+	border: none;
+    border-radius: var(--radius);
+}
+input[type="color"]::-moz-color-swatch {
+    border: none;
+    border-radius: var(--radius);
+}
+
+.gradient.subcontainer > input:nth-child(3){
+    justify-self: flex-end;
+}
+
+.picker {
+    padding: 0px;
+    width: 25px;
+    height: 25px;
+    border: 0px;
+    appearance: none;
+    max-height: 50px;
+    inline-size: -webkit-fill-available;
+    cursor: pointer;
+}
+
+.gradpicker {
+    padding: 0px;
+    width: 25px;
+    height: 25px;
+    border: 0px;
+    appearance: none;
+    -webkit-appearance: none;
+    max-height: 50px;
+    inline-size: -webkit-fill-available;
+    cursor: pointer;
+}
+
+.gradpicker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.gradpicker::-webkit-color-swatch {
+    border: none;
+    border-radius: 12px;
+}
+
+.gradpicker::-moz-color-swatch {
+    border: none;
+    border-radius: 12px;
+}
+
+.controllercontainer { 
+    width: 100%;
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    row-gap: 10px;
+ }

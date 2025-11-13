@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>City Layers - Chat to Map</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="main-map">
+        <div class="left-container">
+            <div class="panel category">
+                <div class="configheader">
+                    <div class="text">
+                        <div class="logo-container">
+                            <div class="logo-icon">
+                                <div class="logo-block"></div>
+                                <div class="logo-block"></div>
+                                <div class="logo-block"></div>
+                            </div>
+                            <h1 class="logo-text">CITY LAYERS</h1>
+                        </div>
+                        <div class="text">
+                            <p>Click on the layers to include them in the map.</p>
+                            <p>Choose how you want to show them!</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="controllercontainer">
+                    <div class="subcontainer vischoice">
+                        <div class="vischoice selected" data-mode="pydeck-heatmap" id="viz-heatmap">
+                            <div class="icon heatmap-icon"></div>
+                            <div class="descr">
+                                <span class="text">Heatmap</span>
+                            </div>
+                        </div>
+                        <div class="vischoice" data-mode="pydeck-hexagon" id="viz-hexagon">
+                            <div class="icon hexagon-icon"></div>
+                            <div class="descr">
+                                <span class="text">Hexagon</span>
+                            </div>
+                        </div>
+                        <div class="vischoice" data-mode="pydeck-scatter" id="viz-scatter">
+                            <div class="icon scatter-icon"></div>
+                            <div class="descr">
+                                <span class="text">Scatter Plot</span>
+                            </div>
+                        </div>
+                        <div class="vischoice" data-mode="leaflet" id="viz-original">
+                            <div class="icon original-icon"></div>
+                            <div class="descr">
+                                <span class="text">Original</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="categorycontainer chat-container">
+                    <div id="chatWindow" class="chat-window">
+                        <div class="system">Ask questions about places in the database.</div>
+                    </div>
+                    <button id="scrollBottomBtn" class="scroll-bottom-btn d-none">Scroll to bottom</button>
+                    <form id="chatForm" class="chat-form">
+                        <input id="chatInput" type="text" placeholder="Type your message..." autocomplete="off" />
+                        <button type="submit">Send</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="right-container">
+            <div id="map" class="mappanel"></div>
+        </div>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+
+
+

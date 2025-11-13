@@ -1,0 +1,18 @@
+
+.scope{
+    width: 50px;
+    /* position: absolute; */
+    /* left: 50%; */
+    /* transform: translate(-25px, -25px); */
+    /* top: 50%; */
+    z-index: 120;
+    /* position: relative; */
+    align-self: center;
+    justify-self: center;
+    grid-column-start: 1;
+    grid-row-start: 1;
+    grid-row-end: 1;
+    grid-column-end: 1;
+    justify-self: center;
+    align-self: center;
+}
