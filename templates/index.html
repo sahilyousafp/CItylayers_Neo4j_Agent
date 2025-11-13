@@ -49,6 +49,12 @@
                                 <span class="text">Scatter Plot</span>
                             </div>
                         </div>
+                        <div class="vischoice" data-mode="pydeck-arc" id="viz-arc">
+                            <div class="icon arc-icon"></div>
+                            <div class="descr">
+                                <span class="text">Arc/Flow</span>
+                            </div>
+                        </div>
                         <div class="vischoice" data-mode="leaflet" id="viz-original">
                             <div class="icon original-icon"></div>
                             <div class="descr">
@@ -71,6 +77,19 @@
         </div>
         <div class="right-container">
             <div id="map" class="mappanel"></div>
+            <div id="dataSources" class="data-sources-panel">
+                <div class="data-sources-header">Data Sources</div>
+                <div class="data-sources-list">
+                    <div class="data-source" id="source-citylayers" style="display: none;">
+                        <span class="source-icon">🏙️</span>
+                        <span class="source-name">CityLayers</span>
+                    </div>
+                    <div class="data-source" id="source-osm" style="display: none;">
+                        <span class="source-icon">🗺️</span>
+                        <span class="source-name">OpenStreetMap</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="/static/js/app.js"></script>

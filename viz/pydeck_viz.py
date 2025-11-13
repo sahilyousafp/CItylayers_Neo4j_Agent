@@ -135,6 +135,7 @@ class PydeckVisualizer:
         - heatmap: density heatmap (ignores category)
         - hexagon: 3D hex layer with elevation
         - choropleth: GeoJSON polygons filled by property
+        - arc: curved lines showing connections between points
         """
         df = self._to_dataframe(records)
         center = self._center(df)
@@ -223,6 +224,62 @@ class PydeckVisualizer:
                         get_fill_color="[properties.value ? Math.max(0, 255 - properties.value) : 30, 144, 255, 160]",
                         get_line_color=[40, 40, 40, 200],
                         line_width_min_pixels=1,
+                    )
+                )
+
+        elif mode == "arc":
+            # Arc layer for showing connections between points
+            # Try to detect source/destination patterns in data
+            arc_data = []
+            
+            # Check if data has explicit source/destination columns
+            if "source_lat" in df.columns and "source_lon" in df.columns and \
+               "dest_lat" in df.columns and "dest_lon" in df.columns:
+                # Explicit arc data
+                for _, row in df.iterrows():
+                    arc_data.append({
+                        "source": [float(row["source_lon"]), float(row["source_lat"])],
+                        "target": [float(row["dest_lon"]), float(row["dest_lat"])],
+                        "color": [30, 144, 255, 180]
+                    })
+            else:
+                # Create arcs between consecutive points
+                if len(df) > 1:
+                    for i in range(len(df) - 1):
+                        arc_data.append({
+                            "source": [float(df.iloc[i]["longitude"]), float(df.iloc[i]["latitude"])],
+                            "target": [float(df.iloc[i + 1]["longitude"]), float(df.iloc[i + 1]["latitude"])],
+                            "color": [30, 144, 255, 180]
+                        })
+            
+            if arc_data:
+                layers.append(
+                    pdk.Layer(
+                        "ArcLayer",
+                        id="arc-layer",
+                        data=arc_data,
+                        get_source_position="source",
+                        get_target_position="target",
+                        get_source_color="color",
+                        get_target_color="color",
+                        get_width=3,
+                        pickable=True,
+                        auto_highlight=True,
+                    )
+                )
+                # Set pitch for better 3D view of arcs
+                view_state.pitch = 30
+            else:
+                # No arc data, fallback to scatter
+                layers.append(
+                    pdk.Layer(
+                        "ScatterplotLayer",
+                        data=df,
+                        get_position="[longitude, latitude]",
+                        get_fill_color="[30, 144, 255, 180]",
+                        get_radius=radius,
+                        pickable=True,
+                        auto_highlight=True,
                     )
                 )
 

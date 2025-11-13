@@ -67,7 +67,7 @@ class VisualizationAgent(BaseAgent):
         Returns:
             List of mode names
         """
-        return ["scatter", "heatmap", "hexagon", "choropleth"]
+        return ["scatter", "heatmap", "hexagon", "choropleth", "arc"]
 
     def set_default_mode(self, mode: str) -> None:
         """
@@ -95,6 +95,7 @@ class VisualizationAgent(BaseAgent):
                 "Heatmap generation",
                 "3D hexagon aggregation",
                 "Choropleth polygon rendering",
+                "Arc layer for connections/flow",
             ],
             "supported_modes": self.get_supported_modes(),
             "default_mode": self.default_mode,

@@ -4,7 +4,26 @@
     const chatInput = document.getElementById("chatInput");
     const chatWindow = document.getElementById("chatWindow");
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
+    const sourceCityLayers = document.getElementById("source-citylayers");
+    const sourceOSM = document.getElementById("source-osm");
     let currentVizMode = "pydeck-heatmap";
+    let hasNeo4jData = false;
+    let hasOSMData = false;
+
+    // Update data sources display
+    function updateDataSources() {
+        if (hasNeo4jData) {
+            sourceCityLayers.style.display = "flex";
+        } else {
+            sourceCityLayers.style.display = "none";
+        }
+        
+        if (hasOSMData) {
+            sourceOSM.style.display = "flex";
+        } else {
+            sourceOSM.style.display = "none";
+        }
+    }
 
     // Leaflet Map
     // We maintain Leaflet objects; PyDeck HTML will replace the container content
@@ -81,6 +100,10 @@
                     appendMessage("assistant", data.answer);
                 }
                 
+                // Mark that we have Neo4j data
+                hasNeo4jData = true;
+                updateDataSources();
+                
                 // If there's a visualization recommendation, handle it
                 if (data.visualization_recommendation) {
                     const recommendedType = data.visualization_recommendation.type;
@@ -100,6 +123,8 @@
                                 .then(osmData => {
                                     if (osmData.ok && osmData.count > 0) {
                                         appendMessage("system", `✓ Loaded ${osmData.count} area boundaries`);
+                                        hasOSMData = true;
+                                        updateDataSources();
                                     }
                                     // Switch to visualization
                                     appendMessage("system", `Visualized in: ${recommendedType.toUpperCase()}`);
