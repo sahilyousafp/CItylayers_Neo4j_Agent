@@ -10,6 +10,7 @@ The agents follow a modular design pattern where each agent is responsible for a
 - **Neo4jAgent**: Handles database queries and natural language to Cypher conversion
 - **VisualizationAgent**: Creates map visualizations using PyDeck
 - **WebScraperAgent**: Scrapes websites and recommends visualizations
+- **OSMAgent**: Fetches OpenStreetMap data for layered visualizations
 
 ## Current Agents
 
@@ -98,6 +99,81 @@ print(result["locations"])  # Extracted location data
 - `hexagon`: Ideal for aggregating multiple points (>10 locations)
 - `choropleth`: Suggested for regional comparisons with statistical data
 - `arc`: Used for flow/connection/route visualization
+
+### OSMAgent
+
+**Purpose**: Fetches OpenStreetMap data via Overpass API to layer contextual geographic information on top of existing visualizations.
+
+**Key Methods**:
+- `process(bbox, center, radius, feature_type, feature_value, tags)`: Fetch OSM data for area
+- `query_by_location_name(location_name, feature_type, feature_value)`: Query OSM by location name
+- `get_info()`: Get agent information and capabilities
+
+**Configuration**:
+```python
+config = {
+    "overpass_url": "https://overpass-api.de/api/interpreter",
+    "timeout": 30,  # Request timeout
+    "max_results": 1000  # Maximum features to return
+}
+agent = OSMAgent(config)
+```
+
+**Example Usage**:
+```python
+from agents import OSMAgent
+
+agent = OSMAgent()
+
+# Query by location name
+result = agent.query_by_location_name(
+    location_name="Manhattan",
+    feature_type="amenity",
+    feature_value="restaurant"
+)
+
+# Query by bounding box
+result = agent.process(
+    bbox=(40.7, -74.0, 40.8, -73.9),  # (min_lat, min_lon, max_lat, max_lon)
+    feature_type="building"
+)
+
+# Query by center point and radius
+result = agent.process(
+    center=(40.7589, -73.9851),  # Times Square
+    radius=1000,  # meters
+    feature_type="tourism"
+)
+
+print(f"Found {result['count']} features")
+for feature in result['features'][:5]:
+    print(feature['properties']['name'])
+```
+
+**Supported Feature Types**:
+- **amenity**: Restaurants, cafes, hospitals, schools, banks, parking, etc.
+- **building**: Building footprints and types
+- **highway**: Roads, streets, paths, motorways
+- **natural**: Parks, forests, water bodies, beaches
+- **leisure**: Parks, playgrounds, sports facilities, gardens
+- **tourism**: Hotels, attractions, museums, viewpoints
+- **shop**: Supermarkets, malls, boutiques, etc.
+- **landuse**: Residential, commercial, industrial zones
+
+**Capabilities**:
+- Fetch nodes, ways, and relations from OSM
+- Filter by any OSM tag combination
+- Geocode location names to coordinates
+- Output in GeoJSON format
+- Automatic bounding box calculation
+- Support for complex spatial queries
+
+**Use Cases**:
+1. **Context Layers**: Add roads, buildings, or landmarks to custom data visualizations
+2. **POI Analysis**: Find all restaurants, hospitals, or schools in an area
+3. **Urban Planning**: Analyze building density, road networks, green spaces
+4. **Route Context**: Show roads and intersections for route visualizations
+5. **Amenity Mapping**: Map distribution of specific amenities (ATMs, pharmacies, etc.)
 
 ## Adding a New Agent
 

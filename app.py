@@ -6,7 +6,7 @@ from datetime import timedelta
 import pandas as pd
 
 # Import agents
-from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent
+from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent, OSMAgent
 
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -31,6 +31,7 @@ def get_session_store() -> Dict[str, Any]:
             "neo4j_agent": Neo4jAgent(),
             "viz_agent": VisualizationAgent(),
             "scraper_agent": WebScraperAgent(),
+            "osm_agent": OSMAgent(),
         }
     return SESSIONS[sid]
 
@@ -205,6 +206,111 @@ def scrape_and_visualize():
             question=question,
             extract_locations=True
         )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/osm-data", methods=["POST"])
+def osm_data():
+    """
+    Fetch OSM data for a location or bounding box.
+    """
+    store = get_session_store()
+    osm_agent: OSMAgent = store["osm_agent"]
+    
+    payload = request.get_json(silent=True) or {}
+    location_name = payload.get("location")
+    bbox = payload.get("bbox")  # [min_lat, min_lon, max_lat, max_lon]
+    center = payload.get("center")  # [lat, lon]
+    radius = payload.get("radius", 5000)
+    feature_type = payload.get("feature_type", "amenity")
+    feature_value = payload.get("feature_value")
+    tags = payload.get("tags")
+    
+    try:
+        if location_name:
+            # Query by location name
+            result = osm_agent.query_by_location_name(
+                location_name=location_name,
+                feature_type=feature_type,
+                feature_value=feature_value
+            )
+        elif bbox or center:
+            # Query by bbox or center
+            if bbox:
+                bbox = tuple(bbox)
+            if center:
+                center = tuple(center)
+            result = osm_agent.process(
+                bbox=bbox,
+                center=center,
+                radius=radius,
+                feature_type=feature_type,
+                feature_value=feature_value,
+                tags=tags
+            )
+        else:
+            return jsonify({"ok": False, "error": "Must provide location, bbox, or center"}), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/osm-layer", methods=["GET"])
+def osm_layer():
+    """
+    Get OSM layer data for current map view.
+    Uses last context records to determine area of interest.
+    """
+    store = get_session_store()
+    osm_agent: OSMAgent = store["osm_agent"]
+    records = store.get("last_context_records", [])
+    
+    # Extract feature type from query params
+    feature_type = request.args.get("feature_type", "amenity")
+    feature_value = request.args.get("feature_value")
+    
+    if not records:
+        return jsonify({"ok": False, "error": "No location data available"}), 400
+    
+    try:
+        # Calculate bounding box from records
+        lats = []
+        lons = []
+        
+        for record in records:
+            p = record.get("p", {})
+            lat = p.get("latitude")
+            lon = p.get("longitude")
+            if lat and lon:
+                lats.append(float(lat))
+                lons.append(float(lon))
+        
+        if not lats or not lons:
+            return jsonify({"ok": False, "error": "No coordinates found in records"}), 400
+        
+        # Add padding to bbox (10%)
+        lat_range = max(lats) - min(lats)
+        lon_range = max(lons) - min(lons)
+        padding_lat = lat_range * 0.1 if lat_range > 0 else 0.01
+        padding_lon = lon_range * 0.1 if lon_range > 0 else 0.01
+        
+        bbox = (
+            min(lats) - padding_lat,
+            min(lons) - padding_lon,
+            max(lats) + padding_lat,
+            max(lons) + padding_lon
+        )
+        
+        # Fetch OSM data
+        result = osm_agent.process(
+            bbox=bbox,
+            feature_type=feature_type,
+            feature_value=feature_value
+        )
+        
         return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
