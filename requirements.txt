@@ -14,3 +14,6 @@ fiona==1.9.6
 pyproj==3.6.1
 Flask==3.0.3
 pydeck==0.9.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.1.0

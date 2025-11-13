@@ -9,6 +9,7 @@ The agents follow a modular design pattern where each agent is responsible for a
 - **BaseAgent**: Abstract base class that all agents inherit from
 - **Neo4jAgent**: Handles database queries and natural language to Cypher conversion
 - **VisualizationAgent**: Creates map visualizations using PyDeck
+- **WebScraperAgent**: Scrapes websites and recommends visualizations
 
 ## Current Agents
 
@@ -46,6 +47,57 @@ agent = Neo4jAgent(config)
 - `heatmap`: Density heatmap
 - `hexagon`: 3D hexagonal aggregation
 - `choropleth`: Polygon choropleth maps
+
+### WebScraperAgent
+
+**Purpose**: Scrapes websites, extracts location data, and recommends the best visualization type based on the question and data.
+
+**Key Methods**:
+- `process(urls, question, extract_locations)`: Scrape URLs and get visualization recommendation
+- `get_info()`: Get agent information and capabilities
+
+**Configuration**:
+```python
+config = {
+    "timeout": 10,  # Request timeout in seconds
+    "max_urls": 5,  # Maximum URLs to scrape
+    "user_agent": "Mozilla/5.0..."  # Custom user agent
+}
+agent = WebScraperAgent(config)
+```
+
+**Example Usage**:
+```python
+from agents import WebScraperAgent
+
+agent = WebScraperAgent()
+result = agent.process(
+    urls=["https://example.com/data"],
+    question="Show me the distribution of stores",
+    extract_locations=True
+)
+
+print(result["recommendation"]["primary"]["type"])  # e.g., "scatter"
+print(result["locations"])  # Extracted location data
+```
+
+**Capabilities**:
+- Web scraping with BeautifulSoup
+- Location extraction from text (cities, countries)
+- Table and list extraction
+- Query analysis (comparison, distribution, density, flow, aggregation)
+- Smart visualization recommendation based on:
+  - Question intent
+  - Data characteristics
+  - Number of locations
+  - Data types present
+
+**Visualization Recommendations**:
+- `scatter`: Best for discrete point locations and distribution questions
+- `heatmap`: Recommended for density/concentration and hotspot analysis
+- `hexagon`: Ideal for aggregating multiple points (>10 locations)
+- `choropleth`: Suggested for regional comparisons with statistical data
+- `arc`: Used for flow/connection/route visualization
 
 ## Adding a New Agent
 

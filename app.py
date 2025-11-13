@@ -6,7 +6,7 @@ from datetime import timedelta
 import pandas as pd
 
 # Import agents
-from agents import Neo4jAgent, VisualizationAgent
+from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent
 
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -30,6 +30,7 @@ def get_session_store() -> Dict[str, Any]:
             "last_context_records": [],  # list[dict]
             "neo4j_agent": Neo4jAgent(),
             "viz_agent": VisualizationAgent(),
+            "scraper_agent": WebScraperAgent(),
         }
     return SESSIONS[sid]
 
@@ -137,6 +138,32 @@ def pydeck_view():
         return html
     except Exception as e:
         return f"<div style='padding:12px;color:#b00020;'>Error rendering visualization: {str(e)}</div>", 500
+
+
+@app.route("/scrape-and-visualize", methods=["POST"])
+def scrape_and_visualize():
+    """
+    Scrape websites and recommend visualization based on question.
+    """
+    store = get_session_store()
+    scraper_agent: WebScraperAgent = store["scraper_agent"]
+    
+    payload = request.get_json(silent=True) or {}
+    urls = payload.get("urls", [])
+    question = payload.get("question", "")
+    
+    if not urls:
+        return jsonify({"ok": False, "error": "No URLs provided"}), 400
+    
+    try:
+        result = scraper_agent.process(
+            urls=urls,
+            question=question,
+            extract_locations=True
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # -----------------------------
