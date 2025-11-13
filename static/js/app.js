@@ -80,6 +80,21 @@
                 } else {
                     appendMessage("assistant", data.answer);
                 }
+                
+                // If there's a visualization recommendation, auto-switch to it
+                if (data.visualization_recommendation) {
+                    const recommendedType = data.visualization_recommendation.type;
+                    const vizMode = `pydeck-${recommendedType}`;
+                    
+                    // Show recommendation to user
+                    const recText = `💡 Recommended visualization: ${recommendedType.toUpperCase()} (${data.visualization_recommendation.reason})`;
+                    appendMessage("system", recText);
+                    
+                    // Auto-switch to recommended visualization
+                    setTimeout(() => {
+                        setVizMode(vizMode);
+                    }, 500);
+                }
             } else {
                 appendMessage("assistant error", data.error || "Error");
             }

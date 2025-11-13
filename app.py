@@ -44,6 +44,7 @@ def index():
 def chat_endpoint():
     store = get_session_store()
     neo4j_agent: Neo4jAgent = store["neo4j_agent"]
+    scraper_agent: WebScraperAgent = store["scraper_agent"]
     chat_history: List[Tuple[str, str]] = store["chat_history"]
 
     payload = request.get_json(silent=True) or {}
@@ -63,6 +64,38 @@ def chat_endpoint():
         
         # Store context for map visualization
         store["last_context_records"] = context_records
+        
+        # Use WebScraperAgent to analyze question and recommend visualization
+        # (without actually scraping - just use the recommendation logic)
+        if context_records:
+            # Extract text from context for analysis
+            context_text = " ".join([
+                str(record.get("p", {}).get("location", "")) + " " +
+                str(record.get("p", {}).get("category", "")) + " " +
+                str(record.get("c", {}).get("description", ""))
+                for record in context_records
+            ])
+            
+            # Get visualization recommendation
+            recommendation = scraper_agent._recommend_visualization(
+                question=question,
+                text=context_text,
+                locations=[{"location": record.get("p", {}).get("location", "")} 
+                          for record in context_records if record.get("p", {}).get("location")]
+            )
+            
+            # Store the recommended visualization mode
+            store["recommended_viz_mode"] = recommendation["primary"]["type"] if recommendation.get("primary") else "scatter"
+            
+            # Add recommendation to response
+            viz_recommendation = {
+                "type": recommendation["primary"]["type"],
+                "reason": recommendation["primary"]["reason"],
+                "confidence": recommendation["primary"]["confidence"]
+            } if recommendation.get("primary") else None
+        else:
+            store["recommended_viz_mode"] = "scatter"
+            viz_recommendation = None
 
         # Persist history
         chat_history.append((question, answer))
@@ -70,7 +103,13 @@ def chat_endpoint():
 
         # Render markdown to HTML for clients that want formatted output
         answer_html = _render_markdown_to_html(answer)
-        return jsonify({"ok": True, "answer": answer, "answer_html": answer_html})
+        
+        return jsonify({
+            "ok": True,
+            "answer": answer,
+            "answer_html": answer_html,
+            "visualization_recommendation": viz_recommendation
+        })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -131,7 +170,12 @@ def pydeck_view():
     store = get_session_store()
     viz_agent: VisualizationAgent = store["viz_agent"]
     records = store.get("last_context_records", [])
-    mode = request.args.get("mode", "scatter").lower()
+    
+    # Use recommended mode if no mode specified, otherwise use provided mode
+    mode = request.args.get("mode")
+    if not mode:
+        mode = store.get("recommended_viz_mode", "scatter")
+    mode = mode.lower()
     
     try:
         html = viz_agent.process(records=records, mode=mode)

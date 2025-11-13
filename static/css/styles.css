@@ -304,10 +304,15 @@ html, body {
 
 .chat-window .system {
   color: var(--secondary-color);
-  opacity: 0.6;
+  opacity: 0.8;
   font-size: 12px;
   margin-bottom: var(--margin-1);
   white-space: pre-wrap;
+  background-color: rgba(1, 71, 81, 0.08);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--secondary-color);
+  font-style: italic;
 }
 
 .chat-window .user {
