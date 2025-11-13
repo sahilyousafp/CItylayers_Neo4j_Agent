@@ -312,10 +312,10 @@ html, body {
 .chat-window .user {
   background-color: #E8E8E8;
   color: var(--secondary-color);
-  padding: var(--margin-1) var(--margin-2);
+  padding: var(--margin-2);
   border-radius: 10px;
   margin-bottom: var(--margin-1);
-  white-space: pre-wrap;
+  white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
   font-size: 14px;
@@ -326,14 +326,14 @@ html, body {
 .chat-window .assistant {
   background-color: #F5F5F5;
   color: var(--secondary-color);
-  padding: var(--margin-1) var(--margin-2);
+  padding: var(--margin-2);
   border-radius: 10px;
   margin-bottom: var(--margin-1);
-  white-space: pre-wrap;
+  white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.8;
   box-sizing: border-box;
   max-width: 100%;
 }
@@ -355,59 +355,96 @@ html, body {
 .chat-window .assistant h6 {
   color: var(--secondary-color);
   font-weight: 700;
-  margin-top: var(--margin-1);
+  margin-top: var(--margin-2);
   margin-bottom: var(--margin-1);
-  line-height: 1.4;
+  line-height: 1.3;
+}
+
+.chat-window .assistant h1:first-child,
+.chat-window .assistant h2:first-child,
+.chat-window .assistant h3:first-child,
+.chat-window .assistant h4:first-child,
+.chat-window .assistant h5:first-child,
+.chat-window .assistant h6:first-child {
+  margin-top: 0;
 }
 
 .chat-window .assistant h1 {
-  font-size: 20px;
+  font-size: 22px;
+  border-bottom: 2px solid var(--tertiary-color);
+  padding-bottom: 6px;
 }
 
 .chat-window .assistant h2 {
-  font-size: 18px;
+  font-size: 19px;
+  border-bottom: 1px solid var(--tertiary-color);
+  padding-bottom: 4px;
 }
 
 .chat-window .assistant h3 {
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .chat-window .assistant h4 {
   font-size: 15px;
+  font-weight: 600;
 }
 
 .chat-window .assistant h5,
 .chat-window .assistant h6 {
   font-size: 14px;
+  font-weight: 600;
 }
 
 .chat-window .assistant ul,
 .chat-window .assistant ol {
   margin-left: var(--margin-2);
   margin-bottom: var(--margin-1);
+  padding-left: var(--margin-1);
+}
+
+.chat-window .assistant li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.chat-window .assistant ul ul,
+.chat-window .assistant ol ol,
+.chat-window .assistant ul ol,
+.chat-window .assistant ol ul {
+  margin-top: 6px;
+  margin-bottom: 6px;
 }
 
 .chat-window .assistant code {
-  background-color: var(--tertiary-color);
-  padding: 2px 6px;
+  background-color: #E8E8E8;
+  color: #c7254e;
+  padding: 3px 7px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 13px;
+  font-family: 'Courier New', Courier, monospace;
+  border: 1px solid #ddd;
 }
 
 .chat-window .assistant pre {
-  background-color: var(--tertiary-color);
-  padding: var(--margin-1);
-  border-radius: 10px;
+  background-color: #f8f9fa;
+  padding: var(--margin-2);
+  border-radius: 8px;
   overflow-x: auto;
-  margin-bottom: var(--margin-1);
+  margin: var(--margin-2) 0;
   max-width: 100%;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
+  border: 1px solid #e1e4e8;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .chat-window .assistant pre code {
   background-color: transparent;
+  color: var(--secondary-color);
   padding: 0;
+  border: none;
+  font-size: 13px;
 }
 
 .chat-window .assistant strong {
@@ -416,8 +453,9 @@ html, body {
 }
 
 .chat-window .assistant p {
-  margin: 0 0 var(--margin-1) 0;
+  margin: 0 0 var(--margin-2) 0;
   padding: 0;
+  line-height: 1.8;
 }
 
 .chat-window .assistant p:last-child {
@@ -439,39 +477,69 @@ html, body {
 }
 
 .chat-window .assistant blockquote {
-  border-left: 3px solid var(--tertiary-color);
-  padding-left: var(--margin-1);
-  margin: var(--margin-1) 0;
+  border-left: 4px solid var(--secondary-color);
+  padding-left: var(--margin-2);
+  margin: var(--margin-2) 0;
   color: var(--secondary-color);
-  opacity: 0.8;
+  opacity: 0.85;
+  font-style: italic;
+  background-color: rgba(1, 71, 81, 0.05);
+  padding: var(--margin-1) var(--margin-2);
+  border-radius: 4px;
 }
 
 .chat-window .assistant table {
   width: 100%;
   border-collapse: collapse;
-  margin: var(--margin-1) 0;
+  margin: var(--margin-2) 0;
   font-size: 13px;
   display: block;
   overflow-x: auto;
   max-width: 100%;
+  border: 1px solid var(--tertiary-color);
+  border-radius: 6px;
 }
 
 .chat-window .assistant table th,
 .chat-window .assistant table td {
-  padding: 6px var(--margin-1);
+  padding: 10px var(--margin-1);
   border: 1px solid var(--tertiary-color);
   text-align: left;
 }
 
 .chat-window .assistant table th {
-  background-color: var(--tertiary-color);
+  background-color: var(--secondary-color);
+  color: var(--primary-color);
   font-weight: 600;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.chat-window .assistant table tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.chat-window .assistant table tr:hover {
+  background-color: #f0f0f0;
 }
 
 .chat-window .assistant hr {
   border: none;
-  border-top: 1px solid var(--tertiary-color);
-  margin: var(--margin-2) 0;
+  border-top: 2px solid var(--tertiary-color);
+  margin: var(--margin-3) 0;
+}
+
+.chat-window .assistant a {
+  color: #0066cc;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.chat-window .assistant a:hover {
+  border-bottom-color: #0066cc;
 }
 
 .chat-form {
