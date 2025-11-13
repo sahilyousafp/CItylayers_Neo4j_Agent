@@ -6,7 +6,6 @@
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceOSM = document.getElementById("source-osm");
-    const collapseBtn = document.getElementById("collapseBtn");
     const expandBtn = document.getElementById("expandBtn");
     const leftContainer = document.querySelector(".left-container");
     let currentVizMode = "pydeck-heatmap";
@@ -30,18 +29,16 @@
         }
     }
 
-    // Handle collapse/expand
-    if (collapseBtn) {
-        collapseBtn.addEventListener("click", () => {
-            leftContainer.classList.add("collapsed");
-            expandBtn.classList.add("show");
-        });
-    }
-
+    // Handle expand button - double-click to toggle
     if (expandBtn) {
         expandBtn.addEventListener("click", () => {
-            leftContainer.classList.remove("collapsed");
-            expandBtn.classList.remove("show");
+            if (leftContainer.classList.contains("collapsed")) {
+                leftContainer.classList.remove("collapsed");
+                expandBtn.textContent = "◀";
+            } else {
+                leftContainer.classList.add("collapsed");
+                expandBtn.textContent = "▶";
+            }
         });
     }
 

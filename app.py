@@ -6,7 +6,7 @@ from datetime import timedelta
 import pandas as pd
 
 # Import agents
-from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent, OSMAgent
+from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent, OSMAgent, MeteostatAgent
 
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -33,6 +33,7 @@ def get_session_store() -> Dict[str, Any]:
             "viz_agent": VisualizationAgent(),
             "scraper_agent": WebScraperAgent(),
             "osm_agent": OSMAgent(),
+            "meteostat_agent": MeteostatAgent(),
         }
     return SESSIONS[sid]
 
@@ -336,6 +337,62 @@ def osm_layer():
         if feature_type == "boundary" and result.get("ok"):
             store["osm_boundaries"] = result.get("features", [])
         
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/weather-data", methods=["POST"])
+def weather_data():
+    """
+    Fetch weather data for a location.
+    """
+    store = get_session_store()
+    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
+    
+    payload = request.get_json(silent=True) or {}
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    start_date = payload.get("start_date")
+    end_date = payload.get("end_date")
+    interval = payload.get("interval", "daily")
+    
+    if latitude is None or longitude is None:
+        return jsonify({"ok": False, "error": "Latitude and longitude required"}), 400
+    
+    try:
+        result = meteostat_agent.process(
+            latitude=float(latitude),
+            longitude=float(longitude),
+            start_date=start_date,
+            end_date=end_date,
+            interval=interval
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/climate-normals", methods=["POST"])
+def climate_normals():
+    """
+    Get climate normals for a location.
+    """
+    store = get_session_store()
+    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
+    
+    payload = request.get_json(silent=True) or {}
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    
+    if latitude is None or longitude is None:
+        return jsonify({"ok": False, "error": "Latitude and longitude required"}), 400
+    
+    try:
+        result = meteostat_agent.get_climate_normals(
+            latitude=float(latitude),
+            longitude=float(longitude)
+        )
         return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
