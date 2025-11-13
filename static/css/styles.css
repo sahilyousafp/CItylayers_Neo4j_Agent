@@ -316,6 +316,8 @@ html, body {
   border-radius: 10px;
   margin-bottom: var(--margin-1);
   white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   font-size: 14px;
   line-height: 1.6;
   box-sizing: border-box;
@@ -328,9 +330,12 @@ html, body {
   border-radius: 10px;
   margin-bottom: var(--margin-1);
   white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   font-size: 14px;
   line-height: 1.6;
   box-sizing: border-box;
+  max-width: 100%;
 }
 
 .chat-window .assistant.error {
@@ -395,6 +400,9 @@ html, body {
   border-radius: 10px;
   overflow-x: auto;
   margin-bottom: var(--margin-1);
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .chat-window .assistant pre code {
@@ -443,6 +451,9 @@ html, body {
   border-collapse: collapse;
   margin: var(--margin-1) 0;
   font-size: 13px;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .chat-window .assistant table th,
@@ -507,21 +518,34 @@ html, body {
 .scroll-bottom-btn {
   position: absolute;
   right: var(--margin-2);
-  bottom: 50px;
+  bottom: 55px;
   z-index: 10;
-  padding: 6px var(--margin-1);
+  width: 36px;
+  height: 36px;
+  padding: 0;
   background-color: var(--secondary-color);
   color: var(--primary-color);
   border: none;
-  border-radius: 10px;
-  font-size: 11px;
+  border-radius: 50%;
+  font-size: 20px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(1, 71, 81, 0.3);
+}
+
+.scroll-bottom-btn::before {
+  content: "↓";
+  display: block;
+  line-height: 1;
 }
 
 .scroll-bottom-btn:hover {
   opacity: 0.9;
+  transform: scale(1.05);
 }
 
 .right-container {
@@ -550,11 +574,11 @@ html, body {
 @media only screen and (min-width: 772px) {
   .left-container {
     width: 30%;
-    max-width: 400px;
+    max-width: none;
   }
 
   .panel.category {
-    max-width: 350px;
+    max-width: none;
     width: auto;
     height: 100vh;
     width: 100%;

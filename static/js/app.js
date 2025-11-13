@@ -91,7 +91,32 @@
     }
 
     async function refreshMapLeaflet() {
-        ensureLeaflet();
+        const mapContainer = document.getElementById("map");
+        // If map container has iframe, clear it and recreate map div
+        if (mapContainer.querySelector("iframe")) {
+            if (map) {
+                map.remove();
+                map = null;
+                markersLayer = null;
+            }
+            mapContainer.innerHTML = '<div id="map" class="mappanel"></div>';
+            // Update reference to new map div
+            const newMapDiv = mapContainer.querySelector("#map");
+            if (newMapDiv) {
+                newMapDiv.id = "leaflet-map-container";
+                map = L.map(newMapDiv, {
+                    center: [20, 0],
+                    zoom: 2,
+                });
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: "&copy; OpenStreetMap contributors",
+                }).addTo(map);
+                markersLayer = L.layerGroup().addTo(map);
+            }
+        } else {
+            ensureLeaflet();
+        }
+        
         try {
             const res = await fetch("/map-data");
             const data = await res.json();
@@ -105,9 +130,28 @@
             features.forEach((f) => {
                 const lat = f.lat;
                 const lon = f.lon;
-                const label = f.location || "";
+                const location = f.location || "Unknown Location";
+                
+                // Build popup content with all available information
+                let popupContent = `<div style="font-family: 'Space Grotesk', sans-serif; max-width: 250px;">`;
+                popupContent += `<strong style="font-size: 14px; color: #014751;">${location}</strong><br/>`;
+                
+                // Add coordinates
+                popupContent += `<div style="margin-top: 8px; font-size: 12px; color: #666;">`;
+                popupContent += `<strong>Coordinates:</strong> ${lat.toFixed(6)}, ${lon.toFixed(6)}<br/>`;
+                
+                // Add other available fields
+                Object.keys(f).forEach(key => {
+                    if (key !== 'lat' && key !== 'lon' && key !== 'location' && f[key]) {
+                        const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        popupContent += `<strong>${label}:</strong> ${f[key]}<br/>`;
+                    }
+                });
+                
+                popupContent += `</div></div>`;
+                
                 const marker = L.marker([lat, lon]);
-                if (label) marker.bindPopup(label);
+                marker.bindPopup(popupContent);
                 marker.addTo(markersLayer);
                 bounds.push([lat, lon]);
             });

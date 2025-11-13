@@ -162,6 +162,8 @@ def map_data():
     lat_col = "p.latitude" if "p.latitude" in df.columns else "latitude" if "latitude" in df.columns else None
     lon_col = "p.longitude" if "p.longitude" in df.columns else "longitude" if "longitude" in df.columns else None
     loc_col = "p.location" if "p.location" in df.columns else "location" if "location" in df.columns else None
+    pid_col = "p.place_id" if "p.place_id" in df.columns else "place_id" if "place_id" in df.columns else None
+    cat_col = "c.description" if "c.description" in df.columns else "category" if "category" in df.columns else "p.category" if "p.category" in df.columns else None
 
     if not lat_col or not lon_col:
         return jsonify({"ok": True, "features": []})
@@ -172,13 +174,31 @@ def map_data():
         lon = row.get(lon_col)
         if pd.isna(lat) or pd.isna(lon):
             continue
-        features.append(
-            {
-                "lat": float(lat),
-                "lon": float(lon),
-                "location": str(row.get(loc_col, "")) if loc_col else "",
-            }
-        )
+        
+        # Collect all available information
+        feature = {
+            "lat": float(lat),
+            "lon": float(lon),
+            "location": str(row.get(loc_col, "")) if loc_col else "",
+        }
+        
+        # Add optional fields if available
+        if pid_col and not pd.isna(row.get(pid_col)):
+            feature["place_id"] = str(row.get(pid_col))
+        if cat_col and not pd.isna(row.get(cat_col)):
+            feature["category"] = str(row.get(cat_col))
+            
+        # Add any other fields from the row that might be useful
+        for col in df.columns:
+            if col not in [lat_col, lon_col, loc_col, pid_col, cat_col]:
+                val = row.get(col)
+                if not pd.isna(val) and str(val).strip():
+                    # Clean up nested column names
+                    clean_col = col.replace("p.", "").replace("c.", "")
+                    if clean_col not in feature:
+                        feature[clean_col] = str(val)
+        
+        features.append(feature)
     return jsonify({"ok": True, "features": features})
 
 
