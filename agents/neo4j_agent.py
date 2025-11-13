@@ -163,10 +163,6 @@ Answer:"""
                 lon = place.get("longitude")
                 pid = place.get("place_id")
                 output_lines.append(f"{count}. {location} (ID: {pid}, Coords: {lat}, {lon})")
-            if count >= 10:
-                break
-        if len(context) > 10:
-            output_lines.append(f"... and {len(context) - 10} more")
         return "\n".join(output_lines)
 
     def get_info(self) -> Dict[str, Any]:

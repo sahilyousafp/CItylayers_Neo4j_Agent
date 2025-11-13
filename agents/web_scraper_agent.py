@@ -179,7 +179,7 @@ class WebScraperAgent(BaseAgent):
         city_country_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b'
         matches = re.findall(city_country_pattern, text)
         
-        for city, country in matches[:20]:  # Limit to 20 locations
+        for city, country in matches:  # No limit - extract all locations
             locations.append({
                 "type": "city",
                 "city": city,
@@ -191,7 +191,7 @@ class WebScraperAgent(BaseAgent):
         city_pattern = r'\b(New York|Los Angeles|Chicago|Houston|Phoenix|Philadelphia|San Antonio|San Diego|Dallas|San Jose|London|Paris|Tokyo|Berlin|Madrid|Rome|Amsterdam|Vienna|Brussels|Copenhagen)\b'
         cities = set(re.findall(city_pattern, text))
         
-        for city in list(cities)[:10]:
+        for city in list(cities):  # No limit - extract all cities
             if not any(loc["city"] == city for loc in locations):
                 locations.append({
                     "type": "city",
