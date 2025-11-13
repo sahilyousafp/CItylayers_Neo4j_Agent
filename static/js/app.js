@@ -6,30 +6,24 @@
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceOSM = document.getElementById("source-osm");
+    const sourceMeteostat = document.getElementById("source-meteostat");
     const expandBtn = document.getElementById("expandBtn");
     const leftContainer = document.querySelector(".left-container");
     let currentVizMode = "pydeck-heatmap";
-    let hasNeo4jData = false;
-    let hasOSMData = false;
     let cityLayersEnabled = true;
-    let osmEnabled = true;
+    let osmEnabled = false;
+    let meteostatEnabled = false;
 
-    // Update data sources display
-    function updateDataSources() {
-        if (hasNeo4jData) {
-            sourceCityLayers.style.display = "flex";
-        } else {
-            sourceCityLayers.style.display = "none";
-        }
-        
-        if (hasOSMData) {
-            sourceOSM.style.display = "flex";
-        } else {
-            sourceOSM.style.display = "none";
-        }
+    // Get active data sources
+    function getActiveDataSources() {
+        const sources = [];
+        if (cityLayersEnabled) sources.push("citylayers");
+        if (osmEnabled) sources.push("osm");
+        if (meteostatEnabled) sources.push("meteostat");
+        return sources;
     }
 
-    // Handle expand button - double-click to toggle
+    // Handle expand button - toggle collapse
     if (expandBtn) {
         expandBtn.addEventListener("click", () => {
             if (leftContainer.classList.contains("collapsed")) {
@@ -48,7 +42,8 @@
             sourceCityLayers.addEventListener("click", () => {
                 cityLayersEnabled = !cityLayersEnabled;
                 sourceCityLayers.classList.toggle("active");
-                handleDataSourceToggle();
+                updateStatusIndicators();
+                console.log("Active data sources:", getActiveDataSources());
             });
         }
 
@@ -56,26 +51,38 @@
             sourceOSM.addEventListener("click", () => {
                 osmEnabled = !osmEnabled;
                 sourceOSM.classList.toggle("active");
-                handleDataSourceToggle();
+                updateStatusIndicators();
+                console.log("Active data sources:", getActiveDataSources());
+            });
+        }
+
+        if (sourceMeteostat) {
+            sourceMeteostat.addEventListener("click", () => {
+                meteostatEnabled = !meteostatEnabled;
+                sourceMeteostat.classList.toggle("active");
+                updateStatusIndicators();
+                console.log("Active data sources:", getActiveDataSources());
             });
         }
     }
 
-    // Handle data source toggle
-    function handleDataSourceToggle() {
-        // Refresh the current visualization with the new data source settings
-        setVizMode(currentVizMode);
-        
-        // Show a message about what's enabled
-        const enabledSources = [];
-        if (cityLayersEnabled) enabledSources.push("CityLayers");
-        if (osmEnabled) enabledSources.push("OpenStreetMap");
-        
-        if (enabledSources.length > 0) {
-            console.log("Active data sources:", enabledSources.join(", "));
-        } else {
-            console.log("No data sources selected");
-        }
+    // Update status indicators
+    function updateStatusIndicators() {
+        const buttons = [
+            { btn: sourceCityLayers, enabled: cityLayersEnabled },
+            { btn: sourceOSM, enabled: osmEnabled },
+            { btn: sourceMeteostat, enabled: meteostatEnabled }
+        ];
+
+        buttons.forEach(({ btn, enabled }) => {
+            if (btn) {
+                const status = btn.querySelector('.source-status');
+                if (status) {
+                    status.textContent = enabled ? '●' : '○';
+                    status.title = enabled ? 'Active' : 'Available';
+                }
+            }
+        });
     }
 
     // Initialize data source toggles
@@ -143,7 +150,10 @@
             const res = await fetch("/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message }),
+                body: JSON.stringify({ 
+                    message,
+                    data_sources: getActiveDataSources()
+                }),
             });
             const data = await res.json();
             // Remove pending

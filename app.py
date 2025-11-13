@@ -47,20 +47,65 @@ def index():
 def chat_endpoint():
     store = get_session_store()
     neo4j_agent: Neo4jAgent = store["neo4j_agent"]
+    osm_agent: OSMAgent = store["osm_agent"]
+    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
     scraper_agent: WebScraperAgent = store["scraper_agent"]
     chat_history: List[Tuple[str, str]] = store["chat_history"]
 
     payload = request.get_json(silent=True) or {}
     question = (payload.get("message") or "").strip()
+    data_sources = payload.get("data_sources", ["citylayers"])
+    
     if not question:
         return jsonify({"ok": False, "error": "Empty message"}), 400
 
     try:
-        # Use Neo4j agent to process the query
-        result = neo4j_agent.process(query=question, chat_history=chat_history)
+        # Process based on selected data sources
+        result = None
+        context_records = []
+        answer = ""
         
-        if not result["ok"]:
-            return jsonify(result), 500
+        # CityLayers (Neo4j) is the primary source
+        if "citylayers" in data_sources:
+            result = neo4j_agent.process(query=question, chat_history=chat_history)
+            if result["ok"]:
+                answer = result["answer"]
+                context_records = result["context_records"]
+        
+        # Add OSM data if selected
+        if "osm" in data_sources and context_records:
+            # Get bounding box from existing records
+            lats = [float(r.get("p", {}).get("latitude", 0)) for r in context_records if r.get("p", {}).get("latitude")]
+            lons = [float(r.get("p", {}).get("longitude", 0)) for r in context_records if r.get("p", {}).get("longitude")]
+            
+            if lats and lons:
+                bbox = (min(lats), min(lons), max(lats), max(lons))
+                osm_result = osm_agent.process(bbox=bbox, feature_type="amenity")
+                if osm_result.get("ok"):
+                    answer += f"\n\n**OSM Data**: Found {osm_result.get('count', 0)} features in the area."
+        
+        # Add weather data if selected
+        if "meteostat" in data_sources and context_records:
+            # Get first location for weather data
+            for record in context_records:
+                p = record.get("p", {})
+                lat = p.get("latitude")
+                lon = p.get("longitude")
+                if lat and lon:
+                    weather_result = meteostat_agent.process(
+                        latitude=float(lat),
+                        longitude=float(lon),
+                        interval="daily"
+                    )
+                    if weather_result.get("ok") and weather_result.get("data"):
+                        latest = weather_result["data"][-1]
+                        temp = latest.get("tavg", "N/A")
+                        answer += f"\n\n**Weather Data**: Temperature: {temp}°C"
+                    break
+        
+        # If no result yet, return error
+        if not result or not result["ok"]:
+            return jsonify({"ok": False, "error": "No data available from selected sources"}), 500
         
         answer = result["answer"]
         context_records = result["context_records"]

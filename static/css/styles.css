@@ -863,3 +863,30 @@ html, body {
   font-weight: 500;
 }
 
+
+.data-sources-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(1, 71, 81, 0.1);
+  text-align: center;
+}
+
+.data-sources-footer small {
+  font-size: 9px;
+  color: rgba(1, 71, 81, 0.6);
+  font-style: italic;
+}
+
+.source-status {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--secondary-color);
+}
+
+.data-source-btn.active .source-status {
+  color: #4CAF50;
+}
+
+.data-source-btn:not(.active) .source-status {
+  color: #999;
+}

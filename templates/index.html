@@ -87,14 +87,24 @@
             <div id="dataSources" class="data-sources-panel">
                 <div class="data-sources-header">Data Sources</div>
                 <div class="data-sources-list">
-                    <button class="data-source-btn active" id="source-citylayers" style="display: none;" data-source="citylayers">
+                    <button class="data-source-btn active" id="source-citylayers" data-source="citylayers">
                         <span class="source-icon">🏙️</span>
                         <span class="source-name">CityLayers</span>
+                        <span class="source-status" title="Primary data source">●</span>
                     </button>
-                    <button class="data-source-btn active" id="source-osm" style="display: none;" data-source="osm">
+                    <button class="data-source-btn" id="source-osm" data-source="osm">
                         <span class="source-icon">🗺️</span>
                         <span class="source-name">OpenStreetMap</span>
+                        <span class="source-status" title="Available">○</span>
                     </button>
+                    <button class="data-source-btn" id="source-meteostat" data-source="meteostat">
+                        <span class="source-icon">🌤️</span>
+                        <span class="source-name">Weather Data</span>
+                        <span class="source-status" title="Available">○</span>
+                    </button>
+                </div>
+                <div class="data-sources-footer">
+                    <small>Click to toggle data sources for queries</small>
                 </div>
             </div>
         </div>
