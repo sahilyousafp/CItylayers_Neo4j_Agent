@@ -81,19 +81,53 @@
                     appendMessage("assistant", data.answer);
                 }
                 
-                // If there's a visualization recommendation, auto-switch to it
+                // If there's a visualization recommendation, handle it
                 if (data.visualization_recommendation) {
                     const recommendedType = data.visualization_recommendation.type;
                     const vizMode = `pydeck-${recommendedType}`;
                     
-                    // Show recommendation to user
-                    const recText = `💡 Recommended visualization: ${recommendedType.toUpperCase()} (${data.visualization_recommendation.reason})`;
-                    appendMessage("system", recText);
-                    
-                    // Auto-switch to recommended visualization
-                    setTimeout(() => {
-                        setVizMode(vizMode);
-                    }, 500);
+                    // Check if choropleth is recommended and OSM boundaries needed
+                    if (recommendedType === "choropleth") {
+                        // Ask user for permission to fetch OSM boundaries
+                        const userConfirm = confirm("Choropleth visualization works best with area boundaries. Fetch boundaries from OpenStreetMap?");
+                        
+                        if (userConfirm) {
+                            appendMessage("system", "Fetching area boundaries from OpenStreetMap...");
+                            
+                            // Fetch OSM boundaries
+                            fetch("/osm-layer?feature_type=boundary&feature_value=administrative")
+                                .then(res => res.json())
+                                .then(osmData => {
+                                    if (osmData.ok && osmData.count > 0) {
+                                        appendMessage("system", `✓ Loaded ${osmData.count} area boundaries`);
+                                    }
+                                    // Switch to visualization
+                                    appendMessage("system", `Visualized in: ${recommendedType.toUpperCase()}`);
+                                    setTimeout(() => {
+                                        setVizMode(vizMode);
+                                    }, 500);
+                                })
+                                .catch(err => {
+                                    appendMessage("system", "⚠ Could not fetch boundaries, using available data");
+                                    appendMessage("system", `Visualized in: ${recommendedType.toUpperCase()}`);
+                                    setTimeout(() => {
+                                        setVizMode(vizMode);
+                                    }, 500);
+                                });
+                        } else {
+                            // User declined, just switch visualization
+                            appendMessage("system", `Visualized in: ${recommendedType.toUpperCase()}`);
+                            setTimeout(() => {
+                                setVizMode(vizMode);
+                            }, 500);
+                        }
+                    } else {
+                        // For other visualization types, just show simple message
+                        appendMessage("system", `Visualized in: ${recommendedType.toUpperCase()}`);
+                        setTimeout(() => {
+                            setVizMode(vizMode);
+                        }, 500);
+                    }
                 }
             } else {
                 appendMessage("assistant error", data.error || "Error");

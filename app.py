@@ -28,6 +28,7 @@ def get_session_store() -> Dict[str, Any]:
         SESSIONS[sid] = {
             "chat_history": [],  # list[tuple[str, str]]
             "last_context_records": [],  # list[dict]
+            "osm_boundaries": [],  # list[dict] - OSM boundary features
             "neo4j_agent": Neo4jAgent(),
             "viz_agent": VisualizationAgent(),
             "scraper_agent": WebScraperAgent(),
@@ -171,6 +172,7 @@ def pydeck_view():
     store = get_session_store()
     viz_agent: VisualizationAgent = store["viz_agent"]
     records = store.get("last_context_records", [])
+    osm_boundaries = store.get("osm_boundaries", [])
     
     # Use recommended mode if no mode specified, otherwise use provided mode
     mode = request.args.get("mode")
@@ -179,7 +181,26 @@ def pydeck_view():
     mode = mode.lower()
     
     try:
-        html = viz_agent.process(records=records, mode=mode)
+        # If choropleth mode and OSM boundaries are available, merge them with records
+        if mode == "choropleth" and osm_boundaries:
+            # Convert records to include geometry from OSM boundaries
+            enhanced_records = []
+            for record in records:
+                # Try to match record location with OSM boundary
+                # For now, just add OSM boundaries as additional records
+                enhanced_records.append(record)
+            
+            # Add OSM boundaries as choropleth-compatible records
+            for boundary in osm_boundaries:
+                enhanced_records.append({
+                    "geojson": boundary,
+                    "location": boundary.get("properties", {}).get("name", "Unknown"),
+                    "value": 1  # Default value for coloring
+                })
+            
+            html = viz_agent.process(records=enhanced_records, mode=mode)
+        else:
+            html = viz_agent.process(records=records, mode=mode)
         return html
     except Exception as e:
         return f"<div style='padding:12px;color:#b00020;'>Error rendering visualization: {str(e)}</div>", 500
@@ -310,6 +331,10 @@ def osm_layer():
             feature_type=feature_type,
             feature_value=feature_value
         )
+        
+        # Store boundaries in session if this is a boundary query
+        if feature_type == "boundary" and result.get("ok"):
+            store["osm_boundaries"] = result.get("features", [])
         
         return jsonify(result)
     except Exception as e:
