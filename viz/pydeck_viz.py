@@ -199,18 +199,33 @@ class PydeckVisualizer:
             # Expect polygons in records; build FeatureCollection
             feature_collection = self._extract_geojson_features(records)
             if not feature_collection.get("features"):
-                # Fallback informative layer if no polygons available
-                layers.append(
-                    pdk.Layer(
-                        "TextLayer",
-                        id="choropleth-empty",
-                        data=[{"position": [center["lon"], center["lat"]], "text": "No polygon data available"}],
-                        get_position="position",
-                        get_text="text",
-                        get_size=16,
-                        get_color=[180, 0, 32],
+                # Fallback to scatter if no polygons available
+                if not df.empty:
+                    layers.append(
+                        pdk.Layer(
+                            "ScatterplotLayer",
+                            id="choropleth-fallback",
+                            data=df,
+                            get_position="[longitude, latitude]",
+                            get_fill_color="[255, 144, 30, 180]",
+                            get_radius=radius,
+                            pickable=True,
+                            auto_highlight=True,
+                        )
                     )
-                )
+                    # Add text layer to inform user
+                    layers.append(
+                        pdk.Layer(
+                            "TextLayer",
+                            id="choropleth-message",
+                            data=[{"position": [center["lon"], center["lat"] + 0.5], "text": "Choropleth requires polygon data. Showing points instead."}],
+                            get_position="position",
+                            get_text="text",
+                            get_size=12,
+                            get_color=[180, 0, 32],
+                            get_alignment_baseline="'top'",
+                        )
+                    )
             else:
                 layers.append(
                     pdk.Layer(
