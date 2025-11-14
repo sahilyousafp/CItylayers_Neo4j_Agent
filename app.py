@@ -6,7 +6,7 @@ from datetime import timedelta
 import pandas as pd
 
 # Import agents
-from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent, OSMAgent, MeteostatAgent
+from agents import Neo4jAgent, VisualizationAgent, WebScraperAgent
 
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -28,12 +28,9 @@ def get_session_store() -> Dict[str, Any]:
         SESSIONS[sid] = {
             "chat_history": [],  # list[tuple[str, str]]
             "last_context_records": [],  # list[dict]
-            "osm_boundaries": [],  # list[dict] - OSM boundary features
             "neo4j_agent": Neo4jAgent(),
             "viz_agent": VisualizationAgent(),
             "scraper_agent": WebScraperAgent(),
-            "osm_agent": OSMAgent(),
-            "meteostat_agent": MeteostatAgent(),
         }
     return SESSIONS[sid]
 
@@ -47,8 +44,6 @@ def index():
 def chat_endpoint():
     store = get_session_store()
     neo4j_agent: Neo4jAgent = store["neo4j_agent"]
-    osm_agent: OSMAgent = store["osm_agent"]
-    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
     scraper_agent: WebScraperAgent = store["scraper_agent"]
     chat_history: List[Tuple[str, str]] = store["chat_history"]
 
@@ -71,48 +66,6 @@ def chat_endpoint():
             if result["ok"]:
                 answer = result["answer"]
                 context_records = result["context_records"]
-        
-        # Add OSM data if selected
-        if "osm" in data_sources and context_records:
-            # Get bounding box from existing records
-            lats = [float(r.get("p", {}).get("latitude", 0)) for r in context_records if r.get("p", {}).get("latitude")]
-            lons = [float(r.get("p", {}).get("longitude", 0)) for r in context_records if r.get("p", {}).get("longitude")]
-            
-            if lats and lons:
-                bbox = (min(lats), min(lons), max(lats), max(lons))
-                osm_result = osm_agent.process(bbox=bbox, feature_type="amenity")
-                if osm_result.get("ok"):
-                    answer += f"\n\n**OSM Data**: Found {osm_result.get('count', 0)} features in the area."
-        
-        # Add weather data if selected
-        if "meteostat" in data_sources and context_records:
-            # Get first location for weather data
-            for record in context_records:
-                p = record.get("p", {})
-                lat = p.get("latitude")
-                lon = p.get("longitude")
-                if lat and lon:
-                    try:
-                        weather_result = meteostat_agent.process(
-                            latitude=float(lat),
-                            longitude=float(lon),
-                            interval="daily"
-                        )
-                        if weather_result.get("ok") and weather_result.get("data"):
-                            latest = weather_result["data"][-1]
-                            temp = latest.get("tavg", "N/A")
-                            prcp = latest.get("prcp", "N/A")
-                            date = latest.get("date", "")
-                            answer += f"\n\n**Weather Data** ({date}): Temperature: {temp}°C, Precipitation: {prcp}mm"
-                        elif weather_result.get("error"):
-                            # Check if it's an import error
-                            if "not installed" in weather_result.get("error", ""):
-                                answer += f"\n\n**Weather Data**: ⚠️ Meteostat library not installed. Run: `pip install meteostat`"
-                            else:
-                                answer += f"\n\n**Weather Data**: ⚠️ {weather_result['error']}"
-                    except Exception as e:
-                        answer += f"\n\n**Weather Data**: ⚠️ Error: {str(e)}"
-                    break
         
         # If no result yet, return error
         if not result or not result["ok"]:
@@ -137,7 +90,7 @@ def chat_endpoint():
                 question=question,
                 text=context_text,
                 locations=[{"location": record.get("p", {}).get("location", "")} 
-                          for record in context_records if record.get("p", {}).get("location")]
+                        for record in context_records if record.get("p", {}).get("location")]
             )
             
             # Store the recommended visualization mode
@@ -158,7 +111,11 @@ def chat_endpoint():
         store["chat_history"] = chat_history
 
         # Render markdown to HTML for clients that want formatted output
-        answer_html = _render_markdown_to_html(answer)
+        # Check if answer is already HTML (starts with <)
+        if answer.strip().startswith('<'):
+            answer_html = answer  # Already HTML, use as-is
+        else:
+            answer_html = _render_markdown_to_html(answer)  # Convert markdown to HTML
         
         return jsonify({
             "ok": True,
@@ -182,7 +139,12 @@ def map_data():
     lon_col = "p.longitude" if "p.longitude" in df.columns else "longitude" if "longitude" in df.columns else None
     loc_col = "p.location" if "p.location" in df.columns else "location" if "location" in df.columns else None
     pid_col = "p.place_id" if "p.place_id" in df.columns else "place_id" if "place_id" in df.columns else None
+    
+    # Extended column mappings for detailed information
     cat_col = "c.description" if "c.description" in df.columns else "category" if "category" in df.columns else "p.category" if "p.category" in df.columns else None
+    subcat_col = "p.subcategory" if "p.subcategory" in df.columns else "subcategory" if "subcategory" in df.columns else None
+    comments_col = "p.comments" if "p.comments" in df.columns else "comments" if "comments" in df.columns else "p.description" if "p.description" in df.columns else None
+    grade_col = "p.grade" if "p.grade" in df.columns else "grade" if "grade" in df.columns else "p.rating" if "p.rating" in df.columns else None
 
     if not lat_col or not lon_col:
         return jsonify({"ok": True, "features": []})
@@ -201,15 +163,22 @@ def map_data():
             "location": str(row.get(loc_col, "")) if loc_col else "",
         }
         
-        # Add optional fields if available
+        # Add core fields if available
         if pid_col and not pd.isna(row.get(pid_col)):
             feature["place_id"] = str(row.get(pid_col))
         if cat_col and not pd.isna(row.get(cat_col)):
             feature["category"] = str(row.get(cat_col))
+        if subcat_col and not pd.isna(row.get(subcat_col)):
+            feature["subcategory"] = str(row.get(subcat_col))
+        if comments_col and not pd.isna(row.get(comments_col)):
+            feature["comments"] = str(row.get(comments_col))
+        if grade_col and not pd.isna(row.get(grade_col)):
+            feature["grade"] = str(row.get(grade_col))
             
         # Add any other fields from the row that might be useful
+        priority_cols = [lat_col, lon_col, loc_col, pid_col, cat_col, subcat_col, comments_col, grade_col]
         for col in df.columns:
-            if col not in [lat_col, lon_col, loc_col, pid_col, cat_col]:
+            if col not in priority_cols:
                 val = row.get(col)
                 if not pd.isna(val) and str(val).strip():
                     # Clean up nested column names
@@ -226,7 +195,6 @@ def pydeck_view():
     store = get_session_store()
     viz_agent: VisualizationAgent = store["viz_agent"]
     records = store.get("last_context_records", [])
-    osm_boundaries = store.get("osm_boundaries", [])
     
     # Use recommended mode if no mode specified, otherwise use provided mode
     mode = request.args.get("mode")
@@ -234,27 +202,19 @@ def pydeck_view():
         mode = store.get("recommended_viz_mode", "scatter")
     mode = mode.lower()
     
+    # Get map state parameters for consistent view
+    center_lat = request.args.get("lat", type=float)
+    center_lon = request.args.get("lon", type=float)
+    zoom = request.args.get("zoom", type=int)
+    
     try:
-        # If choropleth mode and OSM boundaries are available, merge them with records
-        if mode == "choropleth" and osm_boundaries:
-            # Convert records to include geometry from OSM boundaries
-            enhanced_records = []
-            for record in records:
-                # Try to match record location with OSM boundary
-                # For now, just add OSM boundaries as additional records
-                enhanced_records.append(record)
-            
-            # Add OSM boundaries as choropleth-compatible records
-            for boundary in osm_boundaries:
-                enhanced_records.append({
-                    "geojson": boundary,
-                    "location": boundary.get("properties", {}).get("name", "Unknown"),
-                    "value": 1  # Default value for coloring
-                })
-            
-            html = viz_agent.process(records=enhanced_records, mode=mode)
-        else:
-            html = viz_agent.process(records=records, mode=mode)
+        html = viz_agent.process(
+            records=records, 
+            mode=mode,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            zoom=zoom
+        )
         return html
     except Exception as e:
         return f"<div style='padding:12px;color:#b00020;'>Error rendering visualization: {str(e)}</div>", 500
@@ -280,171 +240,6 @@ def scrape_and_visualize():
             urls=urls,
             question=question,
             extract_locations=True
-        )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/osm-data", methods=["POST"])
-def osm_data():
-    """
-    Fetch OSM data for a location or bounding box.
-    """
-    store = get_session_store()
-    osm_agent: OSMAgent = store["osm_agent"]
-    
-    payload = request.get_json(silent=True) or {}
-    location_name = payload.get("location")
-    bbox = payload.get("bbox")  # [min_lat, min_lon, max_lat, max_lon]
-    center = payload.get("center")  # [lat, lon]
-    radius = payload.get("radius", 5000)
-    feature_type = payload.get("feature_type", "amenity")
-    feature_value = payload.get("feature_value")
-    tags = payload.get("tags")
-    
-    try:
-        if location_name:
-            # Query by location name
-            result = osm_agent.query_by_location_name(
-                location_name=location_name,
-                feature_type=feature_type,
-                feature_value=feature_value
-            )
-        elif bbox or center:
-            # Query by bbox or center
-            if bbox:
-                bbox = tuple(bbox)
-            if center:
-                center = tuple(center)
-            result = osm_agent.process(
-                bbox=bbox,
-                center=center,
-                radius=radius,
-                feature_type=feature_type,
-                feature_value=feature_value,
-                tags=tags
-            )
-        else:
-            return jsonify({"ok": False, "error": "Must provide location, bbox, or center"}), 400
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/osm-layer", methods=["GET"])
-def osm_layer():
-    """
-    Get OSM layer data for current map view.
-    Uses last context records to determine area of interest.
-    """
-    store = get_session_store()
-    osm_agent: OSMAgent = store["osm_agent"]
-    records = store.get("last_context_records", [])
-    
-    # Extract feature type from query params
-    feature_type = request.args.get("feature_type", "amenity")
-    feature_value = request.args.get("feature_value")
-    
-    if not records:
-        return jsonify({"ok": False, "error": "No location data available"}), 400
-    
-    try:
-        # Calculate bounding box from records
-        lats = []
-        lons = []
-        
-        for record in records:
-            p = record.get("p", {})
-            lat = p.get("latitude")
-            lon = p.get("longitude")
-            if lat and lon:
-                lats.append(float(lat))
-                lons.append(float(lon))
-        
-        if not lats or not lons:
-            return jsonify({"ok": False, "error": "No coordinates found in records"}), 400
-        
-        # Add padding to bbox (10%)
-        lat_range = max(lats) - min(lats)
-        lon_range = max(lons) - min(lons)
-        padding_lat = lat_range * 0.1 if lat_range > 0 else 0.01
-        padding_lon = lon_range * 0.1 if lon_range > 0 else 0.01
-        
-        bbox = (
-            min(lats) - padding_lat,
-            min(lons) - padding_lon,
-            max(lats) + padding_lat,
-            max(lons) + padding_lon
-        )
-        
-        # Fetch OSM data
-        result = osm_agent.process(
-            bbox=bbox,
-            feature_type=feature_type,
-            feature_value=feature_value
-        )
-        
-        # Store boundaries in session if this is a boundary query
-        if feature_type == "boundary" and result.get("ok"):
-            store["osm_boundaries"] = result.get("features", [])
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/weather-data", methods=["POST"])
-def weather_data():
-    """
-    Fetch weather data for a location.
-    """
-    store = get_session_store()
-    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
-    
-    payload = request.get_json(silent=True) or {}
-    latitude = payload.get("latitude")
-    longitude = payload.get("longitude")
-    start_date = payload.get("start_date")
-    end_date = payload.get("end_date")
-    interval = payload.get("interval", "daily")
-    
-    if latitude is None or longitude is None:
-        return jsonify({"ok": False, "error": "Latitude and longitude required"}), 400
-    
-    try:
-        result = meteostat_agent.process(
-            latitude=float(latitude),
-            longitude=float(longitude),
-            start_date=start_date,
-            end_date=end_date,
-            interval=interval
-        )
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/climate-normals", methods=["POST"])
-def climate_normals():
-    """
-    Get climate normals for a location.
-    """
-    store = get_session_store()
-    meteostat_agent: MeteostatAgent = store["meteostat_agent"]
-    
-    payload = request.get_json(silent=True) or {}
-    latitude = payload.get("latitude")
-    longitude = payload.get("longitude")
-    
-    if latitude is None or longitude is None:
-        return jsonify({"ok": False, "error": "Latitude and longitude required"}), 400
-    
-    try:
-        result = meteostat_agent.get_climate_normals(
-            latitude=float(latitude),
-            longitude=float(longitude)
         )
         return jsonify(result)
     except Exception as e:

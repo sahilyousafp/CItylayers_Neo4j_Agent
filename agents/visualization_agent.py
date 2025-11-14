@@ -32,6 +32,9 @@ class VisualizationAgent(BaseAgent):
         mode: str = None,
         radius: int = None,
         elevation_scale: int = None,
+        center_lat: float = None,
+        center_lon: float = None,
+        zoom: int = None,
     ) -> str:
         """
         Generate HTML visualization from location records.
@@ -41,6 +44,9 @@ class VisualizationAgent(BaseAgent):
             mode: Visualization mode (scatter, heatmap, hexagon, choropleth)
             radius: Radius for scatter/hexagon visualizations
             elevation_scale: Scale for 3D hexagon elevation
+            center_lat: Latitude for map center (preserves view)
+            center_lon: Longitude for map center (preserves view)
+            zoom: Zoom level (preserves view)
             
         Returns:
             HTML string containing the embedded PyDeck visualization
@@ -55,6 +61,9 @@ class VisualizationAgent(BaseAgent):
                 mode=viz_mode,
                 radius=viz_radius,
                 elevation_scale=viz_elevation,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                zoom=zoom,
             )
             return html
         except Exception as e:

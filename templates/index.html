@@ -7,12 +7,15 @@
     <link rel="stylesheet" href="/static/css/styles.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 </head>
 <body>
     <button id="expandBtn" class="expand-btn" aria-label="Expand panel">▶</button>
     <div class="main-map">
         <div class="left-container">
+            <div class="resize-handle"></div>
             <div class="panel category">
                 <div class="configheader">
                     <div class="text">
@@ -27,6 +30,7 @@
                         <div class="text">
                             <p>Click on the layers to include them in the map.</p>
                             <p>Choose how you want to show them!</p>
+                            <p style="font-size: 11px; margin-top: 8px; color: #666;">💡 Tip: Click markers to ask about locations, or draw rectangles to query regions</p>
                         </div>
                     </div>
                 </div>
@@ -76,6 +80,9 @@
                     </div>
                     <button id="scrollBottomBtn" class="scroll-bottom-btn d-none" aria-label="Scroll to bottom"></button>
                     <form id="chatForm" class="chat-form">
+                        <button type="button" class="draw-region-icon-btn" id="drawRectangleBtn" title="Draw region on map">
+                            <div class="rectangle-icon-small"></div>
+                        </button>
                         <input id="chatInput" type="text" placeholder="Type your message..." autocomplete="off" />
                         <button type="submit">Send</button>
                     </form>
@@ -88,19 +95,8 @@
                 <div class="data-sources-header">Data Sources</div>
                 <div class="data-sources-list">
                     <button class="data-source-btn active" id="source-citylayers" data-source="citylayers">
-                        <span class="source-icon">🏙️</span>
                         <span class="source-name">CityLayers</span>
                         <span class="source-status" title="Primary data source">●</span>
-                    </button>
-                    <button class="data-source-btn" id="source-osm" data-source="osm">
-                        <span class="source-icon">🗺️</span>
-                        <span class="source-name">OpenStreetMap</span>
-                        <span class="source-status" title="Available">○</span>
-                    </button>
-                    <button class="data-source-btn" id="source-meteostat" data-source="meteostat">
-                        <span class="source-icon">🌤️</span>
-                        <span class="source-name">Weather Data</span>
-                        <span class="source-status" title="Available">○</span>
                     </button>
                 </div>
                 <div class="data-sources-footer">

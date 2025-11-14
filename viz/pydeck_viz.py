@@ -128,6 +128,9 @@ class PydeckVisualizer:
         mode: str = "scatter",
         radius: int = 5000,
         elevation_scale: int = 100,
+        center_lat: float = None,
+        center_lon: float = None,
+        zoom: int = None,
     ) -> str:
         """
         mode options:
@@ -136,15 +139,28 @@ class PydeckVisualizer:
         - hexagon: 3D hex layer with elevation
         - choropleth: GeoJSON polygons filled by property
         - arc: curved lines showing connections between points
+        
+        Map state parameters:
+        - center_lat, center_lon, zoom: Preserve view state from previous mode
         """
         df = self._to_dataframe(records)
-        center = self._center(df)
-        view_state = pdk.ViewState(
-            longitude=center["lon"],
-            latitude=center["lat"],
-            zoom=6 if not df.empty else 2,
-            pitch=0,
-        )
+        
+        # Use provided center/zoom if available, otherwise calculate from data
+        if center_lat is not None and center_lon is not None and zoom is not None:
+            view_state = pdk.ViewState(
+                longitude=center_lon,
+                latitude=center_lat,
+                zoom=zoom,
+                pitch=0,
+            )
+        else:
+            center = self._center(df)
+            view_state = pdk.ViewState(
+                longitude=center["lon"],
+                latitude=center["lat"],
+                zoom=6 if not df.empty else 2,
+                pitch=0,
+            )
 
         layers = []
 

@@ -21,18 +21,30 @@ def init_model():
 # Format results if AI can't answer
 def format_results(context):
     if not context:
-        return "No results found."
+        return "**No results found.**"
     
-    output = [f"\nFound {len(context)} results:\n"]
+    total_count = len(context)
+    output = [f"### 📍 Found {total_count} locations\n"]
     
-    for i, record in enumerate(context[:10], 1):
+    # Create a markdown table
+    output.append("| # | Location | Place ID | Coordinates |")
+    output.append("|---|----------|----------|-------------|")
+    
+    for i, record in enumerate(context, 1):
         if 'p' in record:
             place = record['p']
-            output.append(f"{i}. {place.get('location', 'Unknown')}")
-            output.append(f"   ID: {place.get('place_id')}, Coords: ({place.get('latitude')}, {place.get('longitude')})")
-    
-    if len(context) > 10:
-        output.append(f"\n... and {len(context) - 10} more")
+            location = place.get('location', 'Unknown')
+            pid = place.get('place_id', 'N/A')
+            lat = place.get('latitude', 'N/A')
+            lon = place.get('longitude', 'N/A')
+            
+            # Format coordinates
+            if lat != 'N/A' and lon != 'N/A':
+                coords = f"{lat:.6f}, {lon:.6f}"
+            else:
+                coords = "N/A"
+            
+            output.append(f"| {i} | **{location}** | `{pid}` | {coords} |")
     
     return "\n".join(output)
 
@@ -73,7 +85,16 @@ Question: {question}
 Database results:
 {context}
 
-Provide a clear, concise answer based on the results. Extract specific information requested.
+IMPORTANT: Provide your answer in proper Markdown format that will be rendered as HTML.
+Use standard markdown syntax:
+- Use ### for headers
+- Use **text** for bold
+- Use - or * for bullet lists
+- Use tables with | for structured data
+- Use `text` for code/IDs
+- Use proper paragraphs
+
+Format your response with clear structure and emphasis on important information.
 
 Answer:"""
             

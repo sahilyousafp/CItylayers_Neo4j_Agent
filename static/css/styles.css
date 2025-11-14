@@ -31,13 +31,16 @@ html, body {
 }
 
 .left-container {
-  width: auto;
   background-color: var(--tertiary-color);
   overflow: hidden;
-  width: 100%;
+  width: 30%;
+  min-width: 20%;
+  max-width: 60%;
   height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  transition: width 0.1s ease-out;
 }
 
 .left-container::-webkit-scrollbar {
@@ -50,7 +53,7 @@ html, body {
   font-size: 12px;
   overflow-y: scroll;
   scrollbar-width: none;
-  min-width: 300px;
+  min-width: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--tertiary-color);
@@ -676,6 +679,7 @@ html, body {
   gap: var(--margin-1);
   background-color: var(--primary-color);
   flex-shrink: 0;
+  align-items: center;
 }
 
 .chat-form input {
@@ -694,7 +698,7 @@ html, body {
   border-color: var(--secondary-color);
 }
 
-.chat-form button {
+.chat-form button[type="submit"] {
   padding: var(--margin-1) var(--margin-2);
   background-color: var(--secondary-color);
   color: var(--primary-color);
@@ -705,10 +709,58 @@ html, body {
   cursor: pointer;
   text-transform: uppercase;
   font-family: inherit;
+  flex-shrink: 0;
 }
 
-.chat-form button:hover {
+.chat-form button[type="submit"]:hover {
   opacity: 0.9;
+}
+
+/* Draw region icon button in chat form */
+.draw-region-icon-btn {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background-color: var(--primary-color);
+  border: 2px solid var(--tertiary-color);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.draw-region-icon-btn:hover {
+  border-color: var(--secondary-color);
+  background-color: rgba(1, 71, 81, 0.05);
+}
+
+.draw-region-icon-btn.active {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+}
+
+.rectangle-icon-small {
+  width: 20px;
+  height: 20px;
+  background-image: 
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color));
+  background-size: 100% 2px, 2px 100%, 100% 2px, 2px 100%;
+  background-position: 0 0, 100% 0, 0 100%, 0 0;
+  background-repeat: no-repeat;
+}
+
+.draw-region-icon-btn.active .rectangle-icon-small {
+  background-image: 
+    linear-gradient(var(--primary-color), var(--primary-color)),
+    linear-gradient(var(--primary-color), var(--primary-color)),
+    linear-gradient(var(--primary-color), var(--primary-color)),
+    linear-gradient(var(--primary-color), var(--primary-color));
 }
 
 .scroll-bottom-btn {
@@ -767,16 +819,58 @@ html, body {
   display: none;
 }
 
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  background-color: transparent;
+  z-index: 1000;
+  transition: background-color 0.15s ease, width 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resize-handle::before {
+  content: '';
+  width: 3px;
+  height: 40px;
+  background-color: rgba(1, 71, 81, 0.2);
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+
+.resize-handle:hover {
+  background-color: rgba(1, 71, 81, 0.15);
+  width: 12px;
+}
+
+.resize-handle:hover::before {
+  background-color: rgba(1, 71, 81, 0.5);
+  height: 60px;
+}
+
+.resize-handle:active {
+  background-color: rgba(1, 71, 81, 0.25);
+  cursor: ew-resize;
+}
+
+.resize-handle:active::before {
+  background-color: rgba(1, 71, 81, 0.7);
+}
+
 @media only screen and (min-width: 772px) {
   .left-container {
     width: 30%;
-    max-width: none;
+    min-width: 20%;
+    max-width: 60%;
   }
 
   .panel.category {
     max-width: none;
-    width: auto;
-    height: 100vh;
     width: 100%;
     height: 100%;
   }
@@ -791,7 +885,54 @@ html, body {
   }
 }
 
-/* Data Sources Panel */
+/* Collapsible message styles */
+.collapsible-message {
+  position: relative;
+}
+
+.collapse-toggle-btn {
+  background-color: var(--secondary-color);
+  color: var(--primary-color);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.collapse-toggle-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.collapsible-message.collapsed .collapsible-content {
+  max-height: 150px;
+  overflow: hidden;
+  position: relative;
+}
+
+.collapsible-message.collapsed .collapsible-content::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: linear-gradient(to bottom, transparent, #F5F5F5);
+  pointer-events: none;
+}
+
+.collapsible-content {
+  transition: max-height 0.3s ease;
+}
+
 .data-sources-panel {
   position: absolute;
   top: 10px;
@@ -884,4 +1025,110 @@ html, body {
 
 .data-source-btn:not(.active) .source-status {
   color: #999;
+}
+
+/* Leaflet popup button styles */
+.leaflet-popup-content button {
+  transition: all 0.2s ease;
+}
+
+.leaflet-popup-content button:hover {
+  background: linear-gradient(135deg, #026270 0%, #014751 100%) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(1,71,81,0.4) !important;
+}
+
+.leaflet-popup-content button:active {
+  transform: translateY(0);
+}
+
+/* Custom popup styles for enhanced location info */
+.leaflet-popup.custom-popup .leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.leaflet-popup.custom-popup .leaflet-popup-content {
+  margin: 10px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+/* Draw control container */
+.subcontainer.draw-control {
+  width: 100%;
+  background-color: var(--primary-color);
+  border-radius: 5px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.draw-rectangle-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: var(--primary-color);
+  border: 2px solid var(--tertiary-color);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(1, 71, 81, 0.1);
+}
+
+.draw-rectangle-btn:hover {
+  border-color: var(--secondary-color);
+  box-shadow: 0 4px 8px rgba(1, 71, 81, 0.2);
+  transform: translateY(-1px);
+}
+
+.draw-rectangle-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(1, 71, 81, 0.15);
+}
+
+.draw-rectangle-btn.active {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+  color: var(--primary-color);
+}
+
+.draw-rectangle-btn.active .icon {
+  border-color: var(--primary-color);
+  background-color: var(--primary-color);
+}
+
+.draw-rectangle-btn .icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  background-color: var(--primary-color);
+  border: 2px solid var(--secondary-color);
+  box-shadow: 2px 2px 4px rgba(1, 71, 81, 0.15);
+  flex-shrink: 0;
+}
+
+.rectangle-icon {
+  background-image: 
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color)),
+    linear-gradient(var(--secondary-color), var(--secondary-color));
+  background-size: 100% 2px, 2px 100%, 100% 2px, 2px 100%;
+  background-position: 0 0, 100% 0, 0 100%, 0 0;
+  background-repeat: no-repeat;
+}
+
+.draw-rectangle-btn .text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--secondary-color);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.draw-rectangle-btn.active .text {
+  color: var(--primary-color);
 }

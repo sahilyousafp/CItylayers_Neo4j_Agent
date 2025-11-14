@@ -65,14 +65,97 @@ class Neo4jAgent(BaseAgent):
         Returns:
             Configured GraphCypherQAChain instance
         """
-        qa_template = """You are a helpful assistant answering questions about places in a database.
+        # Enhanced Cypher generation prompt
+        cypher_generation_template = """Task: Generate Cypher statement to query a graph database.
+Instructions:
+Use only the provided relationship types and properties in the schema.
+Do not use any other relationship types or properties that are not provided.
+
+Schema:
+{schema}
+
+Note: Do not include any explanations or apologies in your responses.
+Do not respond to any questions that might ask anything else than for you to construct a Cypher statement.
+Do not include any text except the generated Cypher statement.
+
+IMPORTANT: Always return comprehensive information about places:
+- Return the place node (p) with ALL its properties
+- Return related category nodes (c) with their descriptions
+- Return subcategory information if available
+- Return comments, grades, ratings, and reviews if they exist
+- Use OPTIONAL MATCH for relationships that might not exist
+
+For queries about specific locations with coordinates:
+- Use WHERE clauses to filter by exact coordinates or nearby coordinates
+- Example: WHERE p.latitude = lat AND p.longitude = lon
+- Or for nearby: WHERE abs(p.latitude - lat) < 0.001 AND abs(p.longitude - lon) < 0.001
+- Return all properties: category, subcategory, comments, grade, rating, etc.
+
+For geographic/region queries with coordinate bounds (North, South, East, West):
+- Use WHERE clauses to filter by latitude and longitude ranges
+- Example: WHERE p.latitude >= south AND p.latitude <= north AND p.longitude >= west AND p.longitude <= east
+
+The question is:
+{question}"""
+
+        cypher_prompt = PromptTemplate(
+            input_variables=["schema", "question"],
+            template=cypher_generation_template,
+        )
+        
+        qa_template = """You are a helpful assistant providing comprehensive information about locations in a database.
 
 Question: {question}
 
 Database results:
 {context}
 
-Provide a clear, concise answer based on the results. Extract specific information requested.
+IMPORTANT Instructions:
+1. When asked about a SPECIFIC location (with or without coordinates):
+   - Provide ALL available information about that location
+   - Include category, subcategory, comments/description, and grade/rating
+   - List all attributes systematically
+   - Format with proper sections using markdown
+   - Be thorough and informative
+
+2. When listing MULTIPLE places:
+   - Keep it concise
+   - Always include coordinates with place IDs
+   - Format: place_id: ChIJxxx (lat, lon)
+
+Use proper markdown syntax:
+- Use ### for main headers, #### for subheaders
+- Use **text** for bold emphasis on important information
+- Use - or * for bullet lists  
+- Use tables with | pipes for structured data when comparing multiple items
+- Use `text` for code/IDs
+- Use proper line breaks between sections
+- Use > for highlighting key information
+
+Structure for single location queries:
+### 📍 [Location Name]
+
+**Description/Comments:** [Detailed description or comments if available]
+
+#### 📂 Classification
+- **Category:** [main category]
+- **Subcategory:** [subcategory if available]
+- **Type:** [type if available]
+
+#### ⭐ Rating & Quality
+- **Grade:** [grade/rating if available]
+- **Reviews:** [review information if available]
+
+#### 📋 Basic Information
+- **Coordinates:** (lat, lon)
+- **Address:** [address if available]
+
+#### 🔑 Identifiers
+- **Place ID:** `place_id`
+[other IDs if available]
+
+#### 📝 Additional Details
+[Any other relevant information such as opening hours, contact info, etc.]
 
 Answer:"""
         qa_prompt = PromptTemplate(
@@ -82,10 +165,12 @@ Answer:"""
         return GraphCypherQAChain.from_llm(
             llm=self.llm,
             graph=self.graph,
+            cypher_prompt=cypher_prompt,
             qa_prompt=qa_prompt,
             allow_dangerous_requests=True,
             verbose=True,
             return_intermediate_steps=True,
+            top_k=10000,
         )
 
     def process(self, query: str, chat_history: List[Tuple[str, str]] = None) -> Dict[str, Any]:
@@ -142,28 +227,56 @@ Answer:"""
 
     def _format_results(self, context: List[Dict[str, Any]]) -> str:
         """
-        Format raw database results into a readable string.
+        Format raw database results into markdown.
+        Shows only first 10 results as preview for chat output.
         
         Args:
             context: List of database records
             
         Returns:
-            Formatted string representation of results
+            Markdown-formatted string representation of results
         """
         if not context:
-            return "No results found."
-        output_lines: List[str] = [f"Found {len(context)} results:"]
-        count = 0
-        for record in context:
-            count += 1
+            return "**No results found.**"
+        
+        total_count = len(context)
+        output = []
+        
+        # Show only first 10 for chat preview
+        preview_count = min(10, total_count)
+        
+        # Header with count
+        if preview_count < total_count:
+            output.append(f"### {total_count} locations (showing first {preview_count})\n")
+        else:
+            output.append(f"### {total_count} locations\n")
+        
+        # Create markdown table with coordinates always included
+        output.append("| # | Location | Place ID (Coordinates) |")
+        output.append("|---|----------|------------------------|")
+        
+        for i, record in enumerate(context[:preview_count], 1):
             if "p" in record:
                 place = record["p"]
                 location = place.get("location", "Unknown")
-                lat = place.get("latitude")
-                lon = place.get("longitude")
-                pid = place.get("place_id")
-                output_lines.append(f"{count}. {location} (ID: {pid}, Coords: {lat}, {lon})")
-        return "\n".join(output_lines)
+                lat = place.get("latitude", "N/A")
+                lon = place.get("longitude", "N/A")
+                pid = place.get("place_id", "N/A")
+                
+                # Format with coordinates
+                if lat != "N/A" and lon != "N/A":
+                    pid_coords = f"`{pid}` ({lat:.6f}, {lon:.6f})"
+                else:
+                    pid_coords = f"`{pid}` (N/A)"
+                
+                output.append(f"| {i} | **{location}** | {pid_coords} |")
+        
+        # Add footer if there are more results
+        if total_count > preview_count:
+            output.append("")
+            output.append(f"_... and {total_count - preview_count} more_")
+        
+        return "\n".join(output)
 
     def get_info(self) -> Dict[str, Any]:
         """
