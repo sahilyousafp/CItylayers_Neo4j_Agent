@@ -1212,6 +1212,17 @@ input:checked + .slider:before {
   transition: stroke 0.2s ease;
 }
 
+.source-icon-img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  transition: filter 0.2s ease;
+}
+
+.data-source-btn.active .source-icon-img {
+  filter: brightness(0) invert(1);
+}
+
 .data-source-btn:hover .source-icon {
   stroke: var(--secondary-color);
 }

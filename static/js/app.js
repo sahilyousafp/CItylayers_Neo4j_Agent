@@ -750,12 +750,12 @@
             intensity: 1.2,
             threshold: 0.03,
             colorRange: [
-                [100, 200, 220, 200],   // Light Teal (Low grade)
-                [120, 180, 210, 200],   // Teal
-                [140, 160, 200, 200],   // Blue-teal
-                [160, 140, 190, 200],   // Purple-blue
-                [180, 120, 170, 200],   // Purple
-                [120, 60, 150, 200]     // Deep Purple (High grade)
+                [255, 100, 100, 200],   // Bright Red (Low grade)
+                [255, 150, 50, 200],    // Bright Orange
+                [255, 220, 80, 200],    // Bright Yellow
+                [150, 255, 100, 200],   // Bright Green
+                [100, 200, 255, 200],   // Bright Sky Blue
+                [100, 150, 255, 200]    // Bright Blue (High grade)
             ],
             opacity: 0.85,
             aggregation: 'MEAN'
@@ -813,13 +813,15 @@
             getHexagon: d => d.hex,
             getFillColor: d => {
                 const temp = d.temperature;
-                // Light teal to deep purple gradient for temperature
-                if (temp < 0) return [100, 200, 220, 200];       // Light Teal (very cold)
-                if (temp < 10) return [120, 180, 210, 200];      // Teal
-                if (temp < 15) return [140, 160, 200, 200];      // Blue-teal
-                if (temp < 20) return [160, 140, 190, 200];      // Purple-blue
-                if (temp < 25) return [180, 120, 170, 200];      // Purple
-                return [120, 60, 150, 200];                      // Deep Purple (hot)
+                // Blue (cold) to Red (hot) gradient
+                if (temp < 0) return [0, 50, 255, 200];          // Deep Blue (freezing)
+                if (temp < 5) return [50, 150, 255, 200];        // Blue (very cold)
+                if (temp < 10) return [100, 200, 255, 200];      // Light Blue (cold)
+                if (temp < 15) return [150, 230, 200, 200];      // Cyan (cool)
+                if (temp < 20) return [200, 255, 150, 200];      // Light Green (mild)
+                if (temp < 25) return [255, 255, 100, 200];      // Yellow (warm)
+                if (temp < 30) return [255, 180, 50, 200];       // Orange (hot)
+                return [255, 50, 50, 200];                       // Red (very hot)
             },
             getElevation: 0,
             elevationScale: 0,
