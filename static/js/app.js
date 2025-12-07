@@ -794,61 +794,32 @@
     }
 
     /**
-     * Create weather heatmap layer showing temperature data using H3 hexagons
-     * @returns {deck.H3HexagonLayer} Weather hexagon visualization layer
+     * Create weather heatmap layer showing temperature data
+     * @returns {deck.HeatmapLayer} Weather heatmap visualization layer
      */
     function createWeatherHeatmapLayer() {
-        // Convert weather points to H3 hexagons
-        const hexMap = new Map();
+        console.log('Creating weather heatmap with', weatherHeatmapData.length, 'points');
         
-        weatherHeatmapData.forEach(point => {
-            try {
-                // Use resolution 9 for better coverage at typical zoom levels
-                const hex = h3.latLngToCell(point.lat, point.lon, 9);
-                
-                if (!hexMap.has(hex)) {
-                    hexMap.set(hex, {
-                        hex: hex,
-                        temperatures: []
-                    });
-                }
-                hexMap.get(hex).temperatures.push(point.temperature);
-            } catch (e) {
-                console.warn('H3 conversion error:', e);
-            }
-        });
-        
-        // Calculate average temperature per hex
-        const hexData = Array.from(hexMap.values()).map(item => ({
-            hex: item.hex,
-            temperature: item.temperatures.reduce((a, b) => a + b, 0) / item.temperatures.length
-        }));
-        
-        console.log('Weather hexagons created:', hexData.length);
-        
-        return new deck.H3HexagonLayer({
-            id: 'weather-hexagons',
-            data: hexData,
+        return new deck.HeatmapLayer({
+            id: 'weather-heatmap',
+            data: weatherHeatmapData,
+            getPosition: d => [d.lon, d.lat],
+            getWeight: d => d.value || d.temperature,
+            radiusPixels: 150,
+            intensity: 2.5,
+            threshold: 0.02,
+            colorRange: [
+                [50, 100, 255],        // Bright Blue (cold)
+                [100, 150, 255],       // Light Blue
+                [150, 200, 255],       // Sky Blue
+                [150, 255, 200],       // Cyan
+                [200, 255, 150],       // Light Green
+                [255, 255, 100],       // Yellow
+                [255, 200, 100],       // Orange
+                [255, 100, 100]        // Red (hot)
+            ],
+            opacity: 0.8,
             pickable: true,
-            wireframe: false,
-            filled: true,
-            extruded: false,
-            getHexagon: d => d.hex,
-            getFillColor: d => {
-                const temp = d.temperature;
-                // Much brighter, more visible colors
-                if (temp < 0) return [50, 100, 255, 255];        // Bright Blue (freezing)
-                if (temp < 5) return [100, 150, 255, 255];       // Light Blue (very cold)
-                if (temp < 10) return [150, 200, 255, 255];      // Sky Blue (cold)
-                if (temp < 15) return [150, 255, 200, 255];      // Cyan (cool)
-                if (temp < 20) return [200, 255, 150, 255];      // Light Green (mild)
-                if (temp < 25) return [255, 255, 100, 255];      // Bright Yellow (warm)
-                if (temp < 30) return [255, 200, 100, 255];      // Orange (hot)
-                return [255, 100, 100, 255];                     // Bright Red (very hot)
-            },
-            getElevation: 0,
-            elevationScale: 0,
-            opacity: 0.9,
             onHover: info => handleWeatherHover(info)
         });
     }
@@ -859,10 +830,26 @@
     function handleWeatherHover(info) {
         if (!temperatureHoverInfo) return;
         
-        if (info && info.object && info.object.temperature) {
-            // Show temperature of the hexagon being hovered
-            temperatureHoverInfo.textContent = `Local: ${info.object.temperature.toFixed(1)}°C`;
-            console.log('Hovering over hexagon:', info.object.temperature);
+        // HeatmapLayer doesn't provide object data, so find nearest point
+        if (info && info.coordinate && weatherHeatmapData.length > 0) {
+            const [lon, lat] = info.coordinate;
+            let nearestPoint = null;
+            let minDistance = Infinity;
+            
+            weatherHeatmapData.forEach(point => {
+                const dx = point.lon - lon;
+                const dy = point.lat - lat;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestPoint = point;
+                }
+            });
+            
+            if (nearestPoint) {
+                temperatureHoverInfo.textContent = `Local: ${nearestPoint.temperature.toFixed(1)}°C`;
+            }
         } else {
             // Reset to default text
             if (weatherEnabled && weatherHeatmapData.length > 0) {
