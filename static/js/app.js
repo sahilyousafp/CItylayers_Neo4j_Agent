@@ -446,9 +446,9 @@
         
         selectedLocation = location;
         
-        // Update panel title
+        // Update panel title - always use "Weather Data"
         if (weatherDetailsTitle) {
-            weatherDetailsTitle.textContent = location.name || 'Location Weather';
+            weatherDetailsTitle.textContent = 'Weather Data';
         }
         
         // Fetch detailed weather data for this location
@@ -472,13 +472,23 @@
                 // Get map center as location
                 const center = map.getCenter();
                 openWeatherDetails({
-                    name: 'Map Center',
+                    name: 'Weather Data',
                     lat: center.lat,
                     lon: center.lng
                 });
             }
         });
     }
+    
+    // Open-Meteo link button handler
+    document.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'openMeteoLink') {
+            if (selectedLocation) {
+                const url = `https://open-meteo.com/en/docs#latitude=${selectedLocation.lat}&longitude=${selectedLocation.lon}`;
+                window.open(url, '_blank');
+            }
+        }
+    });
     
     // Close button handler
     if (closeWeatherDetailsBtn) {
@@ -1743,12 +1753,14 @@
             // Calculate average temperature
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             
-            if (temperatureValue) {
-                temperatureValue.textContent = `${avgTemp}°C`;
-            }
-            
+            // temperatureHoverInfo = large hover temperature (starts as avg)
             if (temperatureHoverInfo) {
                 temperatureHoverInfo.textContent = `${avgTemp}°C`;
+            }
+            
+            // temperatureValue = small average label
+            if (temperatureValue) {
+                temperatureValue.textContent = `Avg: ${avgTemp}°C`;
             }
         } else {
             // Hide panel when weather is disabled

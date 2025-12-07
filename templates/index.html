@@ -149,9 +149,9 @@
                 <div class="location-count-value">0</div>
             </div>
             <div id="temperaturePanel" class="temperature-panel hidden">
-                <div class="temperature-header">Average Temperature</div>
-                <div class="temperature-value">--°C</div>
-                <div class="temperature-hover-info"></div>
+                <div class="temperature-header">Temperature</div>
+                <div class="temperature-hover-info">--°C</div>
+                <div class="temperature-value">Avg: --°C</div>
             </div>
             <div id="mapControls" class="map-controls-panel">
     <label class="theme-switch" title="Toggle Dark/Light Mode">
@@ -172,7 +172,7 @@
     <!-- Weather Details Slide-in Panel -->
     <div id="weatherDetailsPanel" class="weather-details-panel">
         <div class="weather-details-header">
-            <h3 id="weatherDetailsTitle">Location Weather</h3>
+            <h3 id="weatherDetailsTitle">Weather Data</h3>
             <button id="closeWeatherDetails" class="close-weather-btn">×</button>
         </div>
         <div class="weather-details-content">
@@ -199,6 +199,12 @@
             <div class="weather-section">
                 <h4>Humidity</h4>
                 <div id="humidity" class="weather-value">-- %</div>
+            </div>
+            
+            <div class="weather-section">
+                <button id="openMeteoLink" class="open-meteo-btn">
+                    View on Open-Meteo →
+                </button>
             </div>
         </div>
     </div>
