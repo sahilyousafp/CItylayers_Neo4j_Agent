@@ -795,20 +795,20 @@
     }
 
     /**
-     * Create weather heatmap layer showing temperature data
-     * @returns {deck.HeatmapLayer} Weather heatmap visualization layer
+     * Create weather heatmap layer showing temperature data as raster
+     * @returns {deck.HeatmapLayer} Weather raster visualization layer
      */
     function createWeatherHeatmapLayer() {
-        console.log('Creating weather heatmap with', weatherHeatmapData.length, 'points');
+        console.log('Creating weather raster with', weatherHeatmapData.length, 'points');
         
         return new deck.HeatmapLayer({
             id: 'weather-heatmap',
             data: weatherHeatmapData,
             getPosition: d => [d.lon, d.lat],
             getWeight: d => d.value || d.temperature,
-            radiusPixels: 200,     // Larger radius for smoother zones
-            intensity: 3.0,        // Higher intensity for better blending
-            threshold: 0.01,       // Lower threshold for wider spread
+            radiusPixels: 80,      // Smaller radius for finer raster cells
+            intensity: 4.0,        // High intensity for solid colors
+            threshold: 0.005,      // Very low threshold for complete coverage
             colorRange: [
                 [0, 0, 255],           // Pure Blue (freezing)
                 [0, 128, 255],         // Light Blue (cold)

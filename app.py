@@ -888,17 +888,17 @@ def weather_data():
                     avg_temp = sum(temps) / len(temps)
                     print(f"Average temperature: {avg_temp}°C")
             
-            # Generate interpolated grid based on temperature
-            # Use 7x7 grid for better heatmap smoothness
-            lat_step = (north - south) / 6
-            lon_step = (east - west) / 6
+            # Generate dense interpolated grid for raster-like appearance
+            # Use 20x20 grid for smooth raster coverage
+            lat_step = (north - south) / 19
+            lon_step = (east - west) / 19
             
             weather_points = []
             import random
             random.seed(int(center_lat * 1000 + center_lon * 1000))
             
-            for i in range(7):
-                for j in range(7):
+            for i in range(20):
+                for j in range(20):
                     lat = south + (i * lat_step)
                     lon = west + (j * lon_step)
                     
@@ -913,7 +913,7 @@ def weather_data():
                         "value": temp
                     })
             
-            print(f"Generated {len(weather_points)} weather points")
+            print(f"Generated {len(weather_points)} weather points for raster display")
             
             return jsonify({
                 "ok": True,
@@ -930,15 +930,15 @@ def weather_data():
             # Return mock data as fallback
             print("Exception occurred, using mock weather data")
             avg_temp = 15.0
-            lat_step = (north - south) / 6
-            lon_step = (east - west) / 6
+            lat_step = (north - south) / 19
+            lon_step = (east - west) / 19
             
             weather_points = []
             import random
             random.seed(int(center_lat * 1000 + center_lon * 1000))
             
-            for i in range(7):
-                for j in range(7):
+            for i in range(20):
+                for j in range(20):
                     lat = south + (i * lat_step)
                     lon = west + (j * lon_step)
                     variation = random.uniform(-1.5, 1.5)
