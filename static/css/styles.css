@@ -1401,6 +1401,54 @@ input:checked + .slider:before {
   font-variant-numeric: tabular-nums;
 }
 
+/* Temperature Panel */
+.temperature-panel {
+  position: absolute;
+  top: 230px;
+  right: 10px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 200px;
+  border: 1px solid rgba(1, 71, 81, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.3s ease;
+}
+
+.temperature-panel.hidden {
+  display: none;
+}
+
+.temperature-header {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(1, 71, 81, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-align: center;
+}
+
+.temperature-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #4a9eff;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.temperature-hover-info {
+  font-size: 9px;
+  color: rgba(1, 71, 81, 0.5);
+  min-height: 12px;
+  font-style: italic;
+  text-align: center;
+}
+
 /* Old category filter panel styles (keep for backward compatibility but hide) */
 .category-filter-panel {
   position: absolute;

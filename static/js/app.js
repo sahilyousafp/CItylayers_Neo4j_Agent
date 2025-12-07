@@ -47,6 +47,9 @@
     const searchResults = document.getElementById("searchResults");
     const clearSearchBtn = document.getElementById("clearSearchBtn");
     const categorySelect = document.getElementById("categorySelect");
+    const temperaturePanel = document.getElementById("temperaturePanel");
+    const temperatureValue = temperaturePanel?.querySelector(".temperature-value");
+    const temperatureHoverInfo = temperaturePanel?.querySelector(".temperature-hover-info");
 
     // ========================================================================
     // STATE VARIABLES
@@ -792,8 +795,40 @@
                 [255, 0, 0, 200]         // Red - Hot
             ],
             opacity: 0.7,       // Slightly more opaque
-            pickable: false     // Don't interfere with clicking markers
+            pickable: true,     // Enable picking for hover
+            onHover: info => handleWeatherHover(info)
         });
+    }
+
+    /**
+     * Handle hover over weather heatmap to show local temperature
+     */
+    function handleWeatherHover(info) {
+        if (!info || !info.coordinate || !temperatureHoverInfo) return;
+        
+        if (info.coordinate && weatherHeatmapData.length > 0) {
+            // Find nearest weather point to cursor
+            const [lon, lat] = info.coordinate;
+            let nearestPoint = null;
+            let minDistance = Infinity;
+            
+            weatherHeatmapData.forEach(point => {
+                const dx = point.lon - lon;
+                const dy = point.lat - lat;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestPoint = point;
+                }
+            });
+            
+            if (nearestPoint) {
+                temperatureHoverInfo.textContent = `Local: ${nearestPoint.temperature}°C`;
+            }
+        } else {
+            temperatureHoverInfo.textContent = 'Hover over map for local temp';
+        }
     }
 
     function createArcLayers(data, isDrawing) {
@@ -1437,7 +1472,8 @@
     function updateLocationCountDisplay() {
         const countDisplay = document.getElementById('locationCount');
         const countValue = countDisplay?.querySelector('.location-count-value');
-        if (!countValue) return;
+        const headerElement = countDisplay?.querySelector('.location-count-header');
+        if (!countValue || !headerElement) return;
 
         // Count visible/filtered features
         let count = 0;
@@ -1454,30 +1490,37 @@
             });
         }
         
-        // Update location count
+        // Update location count only
+        headerElement.textContent = 'Locations on Map';
         countValue.textContent = count;
         
-        // Add weather info if weather is enabled
-        const headerElement = countDisplay?.querySelector('.location-count-header');
-        if (headerElement && weatherEnabled && weatherHeatmapData.length > 0) {
+        // Update temperature panel separately
+        updateTemperaturePanel();
+    }
+
+    /**
+     * Update the temperature panel with current weather data
+     */
+    function updateTemperaturePanel() {
+        if (!temperaturePanel) return;
+        
+        if (weatherEnabled && weatherHeatmapData.length > 0) {
+            // Show panel
+            temperaturePanel.classList.remove('hidden');
+            
             // Calculate average temperature
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             
-            // Update header to show both
-            headerElement.innerHTML = `
-                <div style="font-size: 11px; margin-bottom: 4px;">Locations on Map</div>
-                <div style="font-size: 10px; color: #888; font-weight: normal;">Avg Temperature</div>
-            `;
+            if (temperatureValue) {
+                temperatureValue.textContent = `${avgTemp}°C`;
+            }
             
-            // Update value to show both
-            countValue.innerHTML = `
-                <div style="font-size: 28px; font-weight: 600;">${count}</div>
-                <div style="font-size: 20px; color: #4a9eff; margin-top: 2px;">${avgTemp}°C</div>
-            `;
-        } else if (headerElement) {
-            // Reset to normal
-            headerElement.textContent = 'Locations on Map';
-            countValue.textContent = count;
+            if (temperatureHoverInfo) {
+                temperatureHoverInfo.textContent = 'Hover over map for local temp';
+            }
+        } else {
+            // Hide panel when weather is disabled
+            temperaturePanel.classList.add('hidden');
         }
     }
 
