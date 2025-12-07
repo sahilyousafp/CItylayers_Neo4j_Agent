@@ -7,7 +7,7 @@ import pandas as pd
 import re
 
 # Import agents
-from agents import Neo4jAgent, WebScraperAgent, OSMAgent, MeteostatAgent
+from agents import Neo4jAgent, WebScraperAgent, OSMAgent, OpenMeteoAgent
 
 
 from config import Config
@@ -34,7 +34,7 @@ def get_session_store() -> Dict[str, Any]:
             # "viz_agent": VisualizationAgent(), # Deprecated
             "scraper_agent": WebScraperAgent(),
             "osm_agent": OSMAgent(),
-            "meteostat_agent": MeteostatAgent(),
+            "openmeteo_agent": OpenMeteoAgent(),
         }
     return SESSIONS[sid]
 
@@ -826,12 +826,12 @@ def scrape_and_visualize():
 @app.route("/weather-data", methods=["POST"])
 def weather_data():
     """
-    Fetch weather data for the given map bounds as a heatmap grid.
+    Fetch weather data for the given map bounds using Open-Meteo API.
     Returns temperature data points across the region.
     """
     try:
         store = get_session_store()
-        meteostat_agent: MeteostatAgent = store["meteostat_agent"]
+        openmeteo_agent: OpenMeteoAgent = store["openmeteo_agent"]
         
         payload = request.get_json(silent=True) or {}
         bounds = payload.get("bounds", {})
@@ -839,54 +839,34 @@ def weather_data():
         if not bounds or not all(k in bounds for k in ["north", "south", "east", "west"]):
             return jsonify({"ok": False, "error": "Invalid bounds provided"}), 400
         
-        # Check if meteostat is available
-        if not meteostat_agent.meteostat_available:
-            return jsonify({
-                "ok": False, 
-                "error": "Meteostat library not available. Install with: pip install meteostat"
-            }), 503
-        
-        # Create a grid of sample points across the bounds
+        # Calculate center point
         north = float(bounds["north"])
         south = float(bounds["south"])
         east = float(bounds["east"])
         west = float(bounds["west"])
         
-        # Calculate center point for single weather station lookup
         center_lat = (north + south) / 2
         center_lon = (east + west) / 2
         
         print(f"Fetching weather for center point: ({center_lat}, {center_lon})")
         
-        # Fetch weather for center point only (faster)
+        # Fetch current weather from Open-Meteo
         try:
-            # Add timeout protection
-            import signal
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("Weather fetch timed out")
-            
-            # Set 10 second timeout (Windows doesn't support SIGALRM, so we'll use a try-except)
-            result = meteostat_agent.process(
+            result = openmeteo_agent.get_current_weather(
                 latitude=center_lat,
                 longitude=center_lon,
-                interval="daily"
+                temperature_unit="celsius"
             )
             
-            if not result.get("ok") or not result.get("data"):
+            if not result.get("ok") or not result.get("current"):
                 print(f"No weather data available: {result.get('error', 'Unknown error')}")
-                # Return mock data as fallback
                 print("Using mock weather data as fallback")
                 avg_temp = 15.0  # Default temperature
             else:
-                # Calculate average temperature
-                temps = [d.get("tavg") for d in result["data"] if d.get("tavg") is not None]
-                if not temps:
-                    print("No temperature data in result, using mock data")
-                    avg_temp = 15.0
-                else:
-                    avg_temp = sum(temps) / len(temps)
-                    print(f"Average temperature: {avg_temp}°C")
+                # Get current temperature
+                current = result["current"]
+                avg_temp = current.get("temperature", 15.0)
+                print(f"Current temperature: {avg_temp}°C")
             
             # Generate dense interpolated grid for raster-like appearance
             # Use 20x20 grid for smooth raster coverage
@@ -919,7 +899,8 @@ def weather_data():
                 "ok": True,
                 "weather_points": weather_points,
                 "bounds": bounds,
-                "center_temperature": round(avg_temp, 1)
+                "center_temperature": round(avg_temp, 1),
+                "source": "open-meteo"
             })
             
         except Exception as point_error:
