@@ -498,14 +498,14 @@
             // Show weather legend with actual gradient colors
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             updateOverlay("Weather Temperature", [
-                { color: "rgb(0, 35, 180)", label: "< 0°C (Freezing)" },
-                { color: "rgb(35, 105, 180)", label: "0-5°C (Very Cold)" },
-                { color: "rgb(70, 140, 180)", label: "5-10°C (Cold)" },
-                { color: "rgb(105, 160, 140)", label: "10-15°C (Cool)" },
-                { color: "rgb(140, 180, 105)", label: "15-20°C (Mild)" },
-                { color: "rgb(180, 180, 70)", label: "20-25°C (Warm)" },
-                { color: "rgb(180, 125, 35)", label: "25-30°C (Hot)" },
-                { color: "rgb(180, 35, 35)", label: "> 30°C (Very Hot)" }
+                { color: "rgb(50, 100, 255)", label: "< 0°C (Freezing)" },
+                { color: "rgb(100, 150, 255)", label: "0-5°C (Very Cold)" },
+                { color: "rgb(150, 200, 255)", label: "5-10°C (Cold)" },
+                { color: "rgb(150, 255, 200)", label: "10-15°C (Cool)" },
+                { color: "rgb(200, 255, 150)", label: "15-20°C (Mild)" },
+                { color: "rgb(255, 255, 100)", label: "20-25°C (Warm)" },
+                { color: "rgb(255, 200, 100)", label: "25-30°C (Hot)" },
+                { color: "rgb(255, 100, 100)", label: "> 30°C (Very Hot)" }
             ]);
         } else {
             console.log('Weather not enabled or no data:', { weatherEnabled, dataLength: weatherHeatmapData.length });
@@ -803,7 +803,8 @@
         
         weatherHeatmapData.forEach(point => {
             try {
-                const hex = h3.latLngToCell(point.lat, point.lon, 7); // Resolution 7 for good coverage
+                // Use resolution 9 for better coverage at typical zoom levels
+                const hex = h3.latLngToCell(point.lat, point.lon, 9);
                 
                 if (!hexMap.has(hex)) {
                     hexMap.set(hex, {
@@ -835,19 +836,19 @@
             getHexagon: d => d.hex,
             getFillColor: d => {
                 const temp = d.temperature;
-                // Darker, deeper blue (cold) to red (hot) gradient
-                if (temp < 0) return [0, 35, 180, 240];          // Deep Blue (freezing)
-                if (temp < 5) return [35, 105, 180, 240];        // Blue (very cold)
-                if (temp < 10) return [70, 140, 180, 240];       // Medium Blue (cold)
-                if (temp < 15) return [105, 160, 140, 240];      // Blue-Green (cool)
-                if (temp < 20) return [140, 180, 105, 240];      // Green-Yellow (mild)
-                if (temp < 25) return [180, 180, 70, 240];       // Yellow (warm)
-                if (temp < 30) return [180, 125, 35, 240];       // Orange (hot)
-                return [180, 35, 35, 240];                       // Deep Red (very hot)
+                // Much brighter, more visible colors
+                if (temp < 0) return [50, 100, 255, 255];        // Bright Blue (freezing)
+                if (temp < 5) return [100, 150, 255, 255];       // Light Blue (very cold)
+                if (temp < 10) return [150, 200, 255, 255];      // Sky Blue (cold)
+                if (temp < 15) return [150, 255, 200, 255];      // Cyan (cool)
+                if (temp < 20) return [200, 255, 150, 255];      // Light Green (mild)
+                if (temp < 25) return [255, 255, 100, 255];      // Bright Yellow (warm)
+                if (temp < 30) return [255, 200, 100, 255];      // Orange (hot)
+                return [255, 100, 100, 255];                     // Bright Red (very hot)
             },
             getElevation: 0,
             elevationScale: 0,
-            opacity: 0.8,
+            opacity: 0.9,
             onHover: info => handleWeatherHover(info)
         });
     }
