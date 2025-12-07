@@ -750,12 +750,12 @@
             intensity: 1.2,
             threshold: 0.03,
             colorRange: [
-                [26, 35, 126, 200],     // Dark Blue (Grade ~10-30)
-                [65, 105, 225, 200],    // Royal Blue (Grade ~30-50)
-                [0, 191, 255, 200],     // Deep Sky Blue (Grade ~50-70)
-                [255, 255, 0, 200],     // Yellow (Grade ~70-85)
-                [255, 140, 0, 200],     // Dark Orange (Grade ~85-100)
-                [220, 20, 60, 200]      // Crimson (Grade ~100)
+                [100, 200, 220, 200],   // Light Teal (Low grade)
+                [120, 180, 210, 200],   // Teal
+                [140, 160, 200, 200],   // Blue-teal
+                [160, 140, 190, 200],   // Purple-blue
+                [180, 120, 170, 200],   // Purple
+                [120, 60, 150, 200]     // Deep Purple (High grade)
             ],
             opacity: 0.85,
             aggregation: 'MEAN'
@@ -774,28 +774,56 @@
     }
 
     /**
-     * Create weather heatmap layer showing temperature data
-     * @returns {deck.HeatmapLayer} Weather heatmap visualization layer
+     * Create weather heatmap layer showing temperature data using H3 hexagons
+     * @returns {deck.H3HexagonLayer} Weather hexagon visualization layer
      */
     function createWeatherHeatmapLayer() {
-        return new deck.HeatmapLayer({
-            id: 'weather-heatmap',
-            data: weatherHeatmapData,
-            getPosition: d => [d.lon, d.lat],
-            getWeight: d => d.value || d.temperature,
-            radiusPixels: 120,  // Increased radius for better coverage
-            intensity: 2,       // Increased intensity for more visible gradient
-            threshold: 0.01,    // Lower threshold for wider spread
-            colorRange: [
-                [0, 0, 255, 200],        // Blue - Cold
-                [0, 191, 255, 200],      // Light Blue
-                [0, 255, 0, 200],        // Green - Moderate
-                [255, 255, 0, 200],      // Yellow
-                [255, 165, 0, 200],      // Orange
-                [255, 0, 0, 200]         // Red - Hot
-            ],
-            opacity: 0.7,       // Slightly more opaque
-            pickable: true,     // Enable picking for hover
+        // Convert weather points to H3 hexagons
+        const hexMap = new Map();
+        
+        weatherHeatmapData.forEach(point => {
+            try {
+                const hex = h3.latLngToCell(point.lat, point.lon, 7); // Resolution 7 for good coverage
+                
+                if (!hexMap.has(hex)) {
+                    hexMap.set(hex, {
+                        hex: hex,
+                        temperatures: []
+                    });
+                }
+                hexMap.get(hex).temperatures.push(point.temperature);
+            } catch (e) {
+                console.warn('H3 conversion error:', e);
+            }
+        });
+        
+        // Calculate average temperature per hex
+        const hexData = Array.from(hexMap.values()).map(item => ({
+            hex: item.hex,
+            temperature: item.temperatures.reduce((a, b) => a + b, 0) / item.temperatures.length
+        }));
+        
+        return new deck.H3HexagonLayer({
+            id: 'weather-hexagons',
+            data: hexData,
+            pickable: true,
+            wireframe: false,
+            filled: true,
+            extruded: false,
+            getHexagon: d => d.hex,
+            getFillColor: d => {
+                const temp = d.temperature;
+                // Light teal to deep purple gradient for temperature
+                if (temp < 0) return [100, 200, 220, 200];       // Light Teal (very cold)
+                if (temp < 10) return [120, 180, 210, 200];      // Teal
+                if (temp < 15) return [140, 160, 200, 200];      // Blue-teal
+                if (temp < 20) return [160, 140, 190, 200];      // Purple-blue
+                if (temp < 25) return [180, 120, 170, 200];      // Purple
+                return [120, 60, 150, 200];                      // Deep Purple (hot)
+            },
+            getElevation: 0,
+            elevationScale: 0,
+            opacity: 0.7,
             onHover: info => handleWeatherHover(info)
         });
     }
@@ -804,10 +832,13 @@
      * Handle hover over weather heatmap to show local temperature
      */
     function handleWeatherHover(info) {
-        if (!info || !info.coordinate || !temperatureHoverInfo) return;
+        if (!info || !temperatureHoverInfo) return;
         
-        if (info.coordinate && weatherHeatmapData.length > 0) {
-            // Find nearest weather point to cursor
+        if (info.object && info.object.temperature) {
+            // Show temperature of the hexagon being hovered
+            temperatureHoverInfo.textContent = `Local: ${info.object.temperature.toFixed(1)}°C`;
+        } else if (info.coordinate && weatherHeatmapData.length > 0) {
+            // Fallback: find nearest weather point if not hovering directly on hexagon
             const [lon, lat] = info.coordinate;
             let nearestPoint = null;
             let minDistance = Infinity;
