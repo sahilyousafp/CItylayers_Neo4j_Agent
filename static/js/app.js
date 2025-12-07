@@ -780,19 +780,19 @@
             data: weatherHeatmapData,
             getPosition: d => [d.lon, d.lat],
             getWeight: d => d.value || d.temperature,
-            radiusPixels: 60,
-            intensity: 1,
-            threshold: 0.03,
+            radiusPixels: 120,  // Increased radius for better coverage
+            intensity: 2,       // Increased intensity for more visible gradient
+            threshold: 0.01,    // Lower threshold for wider spread
             colorRange: [
-                [0, 0, 255, 180],        // Blue - Cold
-                [0, 191, 255, 180],      // Light Blue
-                [0, 255, 0, 180],        // Green - Moderate
-                [255, 255, 0, 180],      // Yellow
-                [255, 165, 0, 180],      // Orange
-                [255, 0, 0, 180]         // Red - Hot
+                [0, 0, 255, 200],        // Blue - Cold
+                [0, 191, 255, 200],      // Light Blue
+                [0, 255, 0, 200],        // Green - Moderate
+                [255, 255, 0, 200],      // Yellow
+                [255, 165, 0, 200],      // Orange
+                [255, 0, 0, 200]         // Red - Hot
             ],
-            opacity: 0.6,
-            pickable: true
+            opacity: 0.7,       // Slightly more opaque
+            pickable: false     // Don't interfere with clicking markers
         });
     }
 
@@ -1454,7 +1454,31 @@
             });
         }
         
+        // Update location count
         countValue.textContent = count;
+        
+        // Add weather info if weather is enabled
+        const headerElement = countDisplay?.querySelector('.location-count-header');
+        if (headerElement && weatherEnabled && weatherHeatmapData.length > 0) {
+            // Calculate average temperature
+            const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
+            
+            // Update header to show both
+            headerElement.innerHTML = `
+                <div style="font-size: 11px; margin-bottom: 4px;">Locations on Map</div>
+                <div style="font-size: 10px; color: #888; font-weight: normal;">Avg Temperature</div>
+            `;
+            
+            // Update value to show both
+            countValue.innerHTML = `
+                <div style="font-size: 28px; font-weight: 600;">${count}</div>
+                <div style="font-size: 20px; color: #4a9eff; margin-top: 2px;">${avgTemp}°C</div>
+            `;
+        } else if (headerElement) {
+            // Reset to normal
+            headerElement.textContent = 'Locations on Map';
+            countValue.textContent = count;
+        }
     }
 
     function clearAllCategoryFilters() {
@@ -2142,9 +2166,33 @@
     });
 
     // ========================================================================
-    // WEATHER DATA SOURCE TOGGLE
+    // DATA SOURCE TOGGLES
     // ========================================================================
     
+    // CityLayers data source toggle
+    if (sourceCityLayers) {
+        sourceCityLayers.addEventListener('click', () => {
+            cityLayersEnabled = !cityLayersEnabled;
+            sourceCityLayers.classList.toggle('active', cityLayersEnabled);
+            
+            // Update visualization
+            if (cityLayersEnabled) {
+                refreshMapData();
+            } else {
+                // Clear location data but keep weather if enabled
+                mapState.features = [];
+                mapState.boundaries = [];
+                if (currentVizMode === 'mapbox') {
+                    mapboxMarkers.forEach(m => m.remove());
+                    mapboxMarkers = [];
+                }
+                updateDeckLayers();
+                updateLocationCountDisplay();
+            }
+        });
+    }
+    
+    // Weather data source toggle
     if (sourceWeather) {
         sourceWeather.addEventListener('click', () => {
             weatherEnabled = !weatherEnabled;
@@ -2184,7 +2232,6 @@
             const contentType = res.headers.get("content-type");
             if (!contentType || !contentType.includes("application/json")) {
                 console.error('Server returned non-JSON response:', await res.text());
-                appendMessage("assistant error", "Weather service unavailable. Please try again later.");
                 weatherEnabled = false;
                 if (sourceWeather) sourceWeather.classList.remove('active');
                 return;
@@ -2201,20 +2248,15 @@
                 
                 updateDeckLayers();
                 
-                // Show success message to user
-                if (weatherHeatmapData.length > 0) {
-                    const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
-                    appendMessage("system", `Weather overlay enabled. Average temperature: ${avgTemp}°C`);
-                }
+                // Update location count panel with weather info
+                updateLocationCountDisplay();
             } else {
                 console.error('Failed to fetch weather data:', data.error);
-                appendMessage("assistant error", `Weather data unavailable: ${data.error || 'Unknown error'}`);
                 weatherEnabled = false;
                 if (sourceWeather) sourceWeather.classList.remove('active');
             }
         } catch (e) {
             console.error('Error fetching weather data:', e);
-            appendMessage("assistant error", "Failed to load weather data. Please check console for details.");
             weatherEnabled = false;
             if (sourceWeather) sourceWeather.classList.remove('active');
         }

@@ -884,22 +884,22 @@ def weather_data():
             avg_temp = sum(temps) / len(temps)
             print(f"Average temperature: {avg_temp}°C")
             
-            # Generate interpolated grid based on center temperature
-            # Add slight variation for visualization effect
-            lat_step = (north - south) / 2
-            lon_step = (east - west) / 2
+            # Generate dense interpolated grid for smooth coverage
+            # Use 7x7 grid for better heatmap smoothness
+            lat_step = (north - south) / 6
+            lon_step = (east - west) / 6
             
             weather_points = []
             import random
             random.seed(int(center_lat * 1000 + center_lon * 1000))
             
-            for i in range(3):
-                for j in range(3):
+            for i in range(7):
+                for j in range(7):
                     lat = south + (i * lat_step)
                     lon = west + (j * lon_step)
                     
-                    # Add small random variation (±2°C) for visualization
-                    variation = random.uniform(-2, 2)
+                    # Add small random variation (±1.5°C) for natural appearance
+                    variation = random.uniform(-1.5, 1.5)
                     temp = avg_temp + variation
                     
                     weather_points.append({
