@@ -168,6 +168,41 @@
 </div>
         </div>
     </div>
+
+    <!-- Weather Details Slide-in Panel -->
+    <div id="weatherDetailsPanel" class="weather-details-panel">
+        <div class="weather-details-header">
+            <h3 id="weatherDetailsTitle">Location Weather</h3>
+            <button id="closeWeatherDetails" class="close-weather-btn">×</button>
+        </div>
+        <div class="weather-details-content">
+            <div class="weather-section">
+                <h4>Current Temperature</h4>
+                <div id="currentTemp" class="weather-value large">--°C</div>
+            </div>
+            
+            <div class="weather-section">
+                <h4>Yearly Temperature Graph</h4>
+                <canvas id="temperatureChart" width="400" height="200"></canvas>
+            </div>
+            
+            <div class="weather-section">
+                <h4>Wind Speed</h4>
+                <div id="windSpeed" class="weather-value">-- km/h</div>
+            </div>
+            
+            <div class="weather-section">
+                <h4>Precipitation</h4>
+                <div id="precipitation" class="weather-value">-- mm</div>
+            </div>
+            
+            <div class="weather-section">
+                <h4>Humidity</h4>
+                <div id="humidity" class="weather-value">-- %</div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/app.js"></script>
 </body>
 

@@ -50,6 +50,9 @@
     const temperaturePanel = document.getElementById("temperaturePanel");
     const temperatureValue = temperaturePanel?.querySelector(".temperature-value");
     const temperatureHoverInfo = temperaturePanel?.querySelector(".temperature-hover-info");
+    const weatherDetailsPanel = document.getElementById("weatherDetailsPanel");
+    const closeWeatherDetailsBtn = document.getElementById("closeWeatherDetails");
+    const weatherDetailsTitle = document.getElementById("weatherDetailsTitle");
 
     // ========================================================================
     // STATE VARIABLES
@@ -430,6 +433,179 @@
             temperatureHoverInfo.textContent = `${avgTemp}°C`;
         }
     });
+
+    // ========================================================================
+    // WEATHER DETAILS PANEL
+    // ========================================================================
+    
+    let selectedLocation = null;
+    
+    // Open weather details panel
+    function openWeatherDetails(location) {
+        if (!weatherDetailsPanel) return;
+        
+        selectedLocation = location;
+        
+        // Update panel title
+        if (weatherDetailsTitle) {
+            weatherDetailsTitle.textContent = location.name || 'Location Weather';
+        }
+        
+        // Fetch detailed weather data for this location
+        fetchLocationWeatherDetails(location.lat, location.lon);
+        
+        // Open panel
+        weatherDetailsPanel.classList.add('open');
+    }
+    
+    // Close weather details panel
+    function closeWeatherDetails() {
+        if (!weatherDetailsPanel) return;
+        weatherDetailsPanel.classList.remove('open');
+        selectedLocation = null;
+    }
+    
+    // Temperature panel click handler
+    if (temperaturePanel) {
+        temperaturePanel.addEventListener('click', () => {
+            if (weatherEnabled && weatherHeatmapData.length > 0) {
+                // Get map center as location
+                const center = map.getCenter();
+                openWeatherDetails({
+                    name: 'Map Center',
+                    lat: center.lat,
+                    lon: center.lng
+                });
+            }
+        });
+    }
+    
+    // Close button handler
+    if (closeWeatherDetailsBtn) {
+        closeWeatherDetailsBtn.addEventListener('click', closeWeatherDetails);
+    }
+    
+    // Fetch detailed weather for a location
+    async function fetchLocationWeatherDetails(lat, lon) {
+        try {
+            // Update current temp immediately with nearest point
+            if (weatherHeatmapData.length > 0) {
+                let nearestPoint = null;
+                let minDistance = Infinity;
+                
+                weatherHeatmapData.forEach(point => {
+                    const dx = point.lon - lon;
+                    const dy = point.lat - lat;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestPoint = point;
+                    }
+                });
+                
+                if (nearestPoint) {
+                    document.getElementById('currentTemp').textContent = `${nearestPoint.temperature.toFixed(1)}°C`;
+                }
+            }
+            
+            // Fetch detailed weather data from Open-Meteo API
+            const response = await fetch(
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
+            );
+            
+            if (!response.ok) throw new Error('Weather API request failed');
+            
+            const data = await response.json();
+            
+            // Update current weather
+            if (data.current) {
+                document.getElementById('currentTemp').textContent = `${data.current.temperature_2m.toFixed(1)}°C`;
+                document.getElementById('windSpeed').textContent = `${data.current.wind_speed_10m.toFixed(1)} km/h`;
+                document.getElementById('precipitation').textContent = `${data.current.precipitation.toFixed(1)} mm`;
+                document.getElementById('humidity').textContent = `${data.current.relative_humidity_2m}%`;
+            }
+            
+            // Create yearly temperature chart
+            if (data.daily) {
+                createTemperatureChart(data.daily);
+            }
+            
+        } catch (error) {
+            console.error('Error fetching weather details:', error);
+            document.getElementById('currentTemp').textContent = 'Error loading data';
+        }
+    }
+    
+    // Create simple temperature chart (using canvas API)
+    function createTemperatureChart(dailyData) {
+        const canvas = document.getElementById('temperatureChart');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Clear canvas
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Get temperature data (first 7 days)
+        const maxTemps = dailyData.temperature_2m_max.slice(0, 7);
+        const minTemps = dailyData.temperature_2m_min.slice(0, 7);
+        
+        if (maxTemps.length === 0) return;
+        
+        // Find min/max for scaling
+        const allTemps = [...maxTemps, ...minTemps];
+        const minTemp = Math.min(...allTemps);
+        const maxTemp = Math.max(...allTemps);
+        const tempRange = maxTemp - minTemp;
+        
+        // Draw grid lines
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = (height / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+        
+        // Draw max temperature line
+        ctx.strokeStyle = '#ff6b6b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        maxTemps.forEach((temp, i) => {
+            const x = (width / (maxTemps.length - 1)) * i;
+            const y = height - ((temp - minTemp) / tempRange) * (height - 20) - 10;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        
+        // Draw min temperature line
+        ctx.strokeStyle = '#4dabf7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        minTemps.forEach((temp, i) => {
+            const x = (width / (minTemps.length - 1)) * i;
+            const y = height - ((temp - minTemp) / tempRange) * (height - 20) - 10;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        
+        // Draw labels
+        ctx.fillStyle = '#666';
+        ctx.font = '12px Space Grotesk';
+        ctx.textAlign = 'center';
+        maxTemps.forEach((temp, i) => {
+            const x = (width / (maxTemps.length - 1)) * i;
+            ctx.fillText(`Day ${i + 1}`, x, height - 2);
+        });
+    }
 
     // Helper to add 3D buildings
     function add3DBuildingsLayer() {
@@ -1228,8 +1404,19 @@
             // Add click listener
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const query = `Tell me about the location at latitude ${f.lat} and longitude ${f.lon}`;
-                sendMessage(query);
+                
+                // If weather is enabled, open weather details panel
+                if (weatherEnabled) {
+                    openWeatherDetails({
+                        name: f.location || `Location at ${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}`,
+                        lat: f.lat,
+                        lon: f.lon
+                    });
+                } else {
+                    // Otherwise, send chat message
+                    const query = `Tell me about the location at latitude ${f.lat} and longitude ${f.lon}`;
+                    sendMessage(query);
+                }
             });
 
             const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
