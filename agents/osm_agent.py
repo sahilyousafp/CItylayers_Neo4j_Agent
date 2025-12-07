@@ -352,6 +352,165 @@ class OSMAgent(BaseAgent):
                 "count": 0,
             }
 
+    def get_city_boundary(
+        self,
+        city_name: str
+    ) -> Dict[str, Any]:
+        """
+        Fetch city boundary polygon from OSM.
+        
+        Args:
+            city_name: Name of the city
+            
+        Returns:
+            Dictionary containing:
+                - ok: Success status
+                - geometry: GeoJSON geometry of city boundary
+                - properties: City properties (name, population, etc.)
+                - error: Error message if any
+        """
+        try:
+            # First, geocode to get the OSM relation ID for the city
+            nominatim_url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                "q": city_name,
+                "format": "json",
+                "limit": 1,
+                "polygon_geojson": 1,
+                "addressdetails": 1
+            }
+            headers = {"User-Agent": "CityLayers-OSM-Agent/1.0"}
+            
+            response = requests.get(nominatim_url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            results = response.json()
+            
+            if not results:
+                return {
+                    "ok": False,
+                    "error": f"City '{city_name}' not found",
+                }
+            
+            result = results[0]
+            
+            # If we have a polygon directly from Nominatim, use it
+            if "geojson" in result:
+                return {
+                    "ok": True,
+                    "geometry": result["geojson"],
+                    "properties": {
+                        "name": result.get("display_name", city_name),
+                        "osm_type": result.get("osm_type"),
+                        "osm_id": result.get("osm_id"),
+                    }
+                }
+            
+            # Otherwise, query Overpass for admin boundary
+            osm_type = result.get("osm_type")
+            osm_id = result.get("osm_id")
+            
+            if not osm_id:
+                return {
+                    "ok": False,
+                    "error": "Could not determine OSM ID for city",
+                }
+            
+            # Build Overpass query for the specific relation
+            if osm_type == "relation":
+                type_prefix = "rel"
+            elif osm_type == "way":
+                type_prefix = "way"
+            else:
+                type_prefix = "node"
+            
+            query = f"""
+            [out:json][timeout:{self.timeout}];
+            (
+              {type_prefix}({osm_id});
+            );
+            out geom;
+            """
+            
+            response = requests.post(
+                self.overpass_url,
+                data={"data": query},
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            elements = data.get("elements", [])
+            
+            if not elements:
+                return {
+                    "ok": False,
+                    "error": "No boundary data found",
+                }
+            
+            element = elements[0]
+            
+            # Parse geometry
+            geometry = None
+            if element.get("type") == "way":
+                geom = element.get("geometry", [])
+                if geom:
+                    coordinates = [[node["lon"], node["lat"]] for node in geom]
+                    if coordinates[0] != coordinates[-1]:
+                        coordinates.append(coordinates[0])  # Close the polygon
+                    geometry = {
+                        "type": "Polygon",
+                        "coordinates": [coordinates]
+                    }
+            elif element.get("type") == "relation":
+                # For relations, construct MultiPolygon from member ways
+                members = element.get("members", [])
+                polygons = []
+                
+                for member in members:
+                    if member.get("type") == "way" and member.get("role") in ["outer", ""]:
+                        geom = member.get("geometry", [])
+                        if geom:
+                            coordinates = [[node["lon"], node["lat"]] for node in geom]
+                            if len(coordinates) > 2:
+                                if coordinates[0] != coordinates[-1]:
+                                    coordinates.append(coordinates[0])
+                                polygons.append([coordinates])
+                
+                if polygons:
+                    if len(polygons) == 1:
+                        geometry = {
+                            "type": "Polygon",
+                            "coordinates": polygons[0]
+                        }
+                    else:
+                        geometry = {
+                            "type": "MultiPolygon",
+                            "coordinates": polygons
+                        }
+            
+            if not geometry:
+                return {
+                    "ok": False,
+                    "error": "Could not parse boundary geometry",
+                }
+            
+            return {
+                "ok": True,
+                "geometry": geometry,
+                "properties": {
+                    "name": element.get("tags", {}).get("name", city_name),
+                    "osm_type": element.get("type"),
+                    "osm_id": element.get("id"),
+                    **element.get("tags", {})
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+            }
+
     def get_info(self) -> Dict[str, Any]:
         """
         Return information about the OSM agent.

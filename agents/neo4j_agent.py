@@ -2,11 +2,269 @@
 Neo4j Agent - Handles database queries and natural language to Cypher conversion
 """
 import os
+import re
 from typing import Dict, Any, List, Tuple
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
+from langchain_ollama import ChatOllama
+from langchain_neo4j import Neo4jGraph
 from langchain_core.prompts import PromptTemplate
 from .base_agent import BaseAgent
+
+
+CYPHER_GENERATION_TEMPLATE = """Task: Generate a Cypher statement to query a graph database.
+
+Instructions:
+- Use ONLY the relationship types and properties provided in the schema
+- Do NOT use any other relationships or properties not listed
+- Return ONLY the Cypher statement, no explanations or comments
+
+Schema:
+{schema}
+
+Database Structure:
+- Places connect to Categories through Place_Grade nodes: (Place)-[:HAS_GRADE]->(Place_Grade)-[:BELONGS_TO]->(Category)
+- Category properties: category_id (integer 1-6), type (name), description
+- Always use OPTIONAL MATCH for category relationships
+
+Query Pattern Examples:
+```
+MATCH (p:places)
+OPTIONAL MATCH (p)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+WHERE p.latitude >= 48.1 AND p.latitude <= 48.3 
+  AND p.longitude >= 16.2 AND p.longitude <= 16.5
+RETURN DISTINCT p, c, pg, co
+```
+
+For Category Filtering - IMPORTANT:
+When filtering by category, the WHERE clause MUST be placed BEFORE the OPTIONAL MATCH returns None values.
+CORRECT pattern:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE p.latitude >= 48.1 AND p.latitude <= 48.3 
+  AND p.longitude >= 16.2 AND p.longitude <= 16.5
+  AND c.category_id = 1
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+```
+
+WRONG pattern (this returns places where c is None):
+```
+MATCH (p:places)
+OPTIONAL MATCH (p)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE c.category_id = 1  -- This filters AFTER optional match, keeping nulls!
+```
+
+CRITICAL RULES:
+1. ALWAYS return individual place nodes (p) with their properties
+2. NEVER use COUNT, GROUP BY, COLLECT, or any aggregation in RETURN
+3. Each row must represent ONE place with its location data (lat/lon)
+4. Return DISTINCT results to avoid duplicates
+5. Include: p, c, pg, co (place, category, grade, comment nodes)
+6. DETECT QUERY INTENT:
+   - If asking about ONE specific place by name (e.g., "tell me about Stephansplatz", "what is Stephansplatz"): Use LIMIT 1
+   - If asking about ONE specific point/coordinate: Use LIMIT 1
+   - If asking about multiple places or a region (e.g., "places in Vienna", "show all"): Do NOT use LIMIT
+   - Keywords indicating single place: "tell me about", "what is", "show me [specific name]", "information about"
+   - Keywords indicating multiple: "places in", "locations in", "all", "find", "show all"
+
+For Specific Coordinate Queries (e.g., "location at latitude X and longitude Y" or "what is at this point"):
+- Match EXACT coordinates: WHERE p.latitude = X AND p.longitude = Y
+- Or match nearby (within 0.0001 degrees): WHERE abs(p.latitude - X) < 0.0001 AND abs(p.longitude - Y) < 0.0001
+- Return: RETURN p, c, pg, co
+- ALWAYS use LIMIT 1 for exact coordinate queries to return only that specific point
+
+For Single Place by Name (e.g., "tell me about Stephansplatz" or "show me Stephansplatz"):
+- Use: WHERE toLower(p.location) CONTAINS toLower('Stephansplatz')
+- Add LIMIT 1 to return only that specific place
+- Return: RETURN p, c, pg, co LIMIT 1
+
+For Named Location Queries (e.g., "places in Vienna" or "show Vienna locations"):
+- Use: WHERE toLower(p.location) CONTAINS toLower('Vienna')
+- Return ALL matching places, no LIMIT
+
+For Bounded Region Queries (with North/South/East/West coordinates):
+- Use: WHERE p.latitude >= south_value AND p.latitude <= north_value 
+        AND p.longitude >= west_value AND p.longitude <= east_value
+- Return ALL places in region, no LIMIT
+
+For Category-Filtered Queries - USE MATCH NOT OPTIONAL MATCH:
+When filtering by category, use MATCH (not OPTIONAL MATCH) for the category relationship:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+  AND c.category_id = X
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+```
+This ensures only places WITH that category are returned (not places where c is None).
+
+User Question: {question}
+
+Map Context: {map_bounds_info}
+
+Generate the Cypher query now:"""
+
+QA_TEMPLATE = """You are a helpful location assistant providing information about places from a database. Your responses should be **easy to understand** for the **general public** with clear formatting and helpful context.
+
+Question: {question}
+
+Database Results:
+{context}
+
+**Response Guidelines:**
+
+1. **For Region/Area Queries** (questions with map bounds or asking about an area):
+   - Format: "### 📍 [Location/Region Name]"
+   - **One-sentence summary** of the area in plain language
+   - **Statistics table** using markdown:
+   
+   | Metric | Value |
+   |--------|-------|
+   | **Total Locations** | XXX |
+   | **Most Common** | Category name (XXX locations, YY%) |
+   | **Average Rating** | X.X out of 10 ⭐ |
+   | **Highest Rated** | Location name (X.X/10) |
+   
+   - **Key Highlights:** 3-4 bullet points with interesting findings
+   - **Top 5 Comments from this Region:** (if available)
+     - "Comment text" - *Location Name* (Rating: X.X/10)
+   - Keep under 250 words total
+   - Use **bold** for important numbers, ratings, and category names
+
+2. **For Specific Location Queries** (asking about one place by name or coordinates):
+   - Format: "### 📍 [Location Name]"
+   - **Quick Facts Table:**
+   
+   | Property | Details |
+   |----------|---------|
+   | 📍 **Location** | Full address |
+   | 🏷️ **Category** | Category name |
+   | ⭐ **Rating** | X.X out of 10 |
+   | 📝 **What it's about** | Brief description in simple terms |
+   
+   - **About this location:** 1-2 sentences explaining what makes it special
+   
+   - **💬 Top 5 Visitor Comments:** (if comments available)
+     1. "Comment text" - *Date or Context*
+     2. "Comment text" - *Date or Context*
+     3. (etc.)
+   - Keep thorough but readable (250-350 words max)
+   - Use **bold** for key features and important details
+
+3. **For Multiple Specific Places** (list of named places):
+   - **For 1-20 places:** Create easy-to-read table:
+   
+   | Location | What it is | Rating ⭐ | Why visit |
+   |----------|------------|----------|-----------|
+   
+   - **For 21+ places:** 
+     - Summary statistics with **bold** numbers
+     - **Top 5 Highest Rated** locations in table format
+     - **Top 5 Comments Across All Locations:**
+       1. "Comment text" - *Location Name* (Rating)
+   - ALWAYS show location names in **bold**, NEVER show place IDs
+   - Use simple language for categories
+
+4. **For Category-Specific Queries** (e.g., "show me beauty locations"):
+   - Format: "### 🏷️ [Category Name]"
+   - One sentence explaining what this category means in everyday terms
+   - **Statistics:**
+   
+   | What we found | Details |
+   |---------------|---------|
+   | **Total Locations** | XXX places |
+   | **Average Rating** | X.X out of 10 ⭐ |
+   | **Rating Range** | From X.X to X.X |
+   | **Best Rated** | Location name (X.X/10) |
+   
+   - **Top 5 Rated Locations:** Table with names, ratings, and brief descriptions
+   - **Top 5 Comments for this Category:**
+     1. "Comment text" - *Location Name* (Rating: X.X/10)
+   - Keep under 300 words
+
+**Formatting Rules for Better Readability:**
+- Use ### for main headers only
+- Use #### for subsections sparingly
+- Use tables for all structured data
+- Use **bold** for ALL important words: numbers, ratings, place names, category names, key facts
+- Use emojis liberally: 📍🏷️⭐📝💬🌟🏆👍
+- Use "out of 10" instead of "/10" for clarity
+- Return ONLY markdown - no JSON, no code blocks
+- Break up long paragraphs - use bullet points
+
+**Content Requirements:**
+- Write like you're talking to a friend - avoid technical jargon
+- **Bold** all numbers, ratings, and important terms
+- Always include **Top 5 Comments** when available (prioritize highest-rated locations)
+- Focus on "what" and "why" - help people understand what they're looking at
+- Add context: explain what categories mean, why ratings matter
+- Use simple words: "places" not "locations", "rating" not "grade"
+- If showing comments, include location name and rating for context
+- DO NOT mention map UI interactions or technical database terms
+- If no results: suggest alternatives in a helpful, friendly way
+- Keep your response focused on the DATABASE RESULTS provided
+- DO NOT make up information about specific places - stick to the data
+- Additional context about landmarks may be provided separately
+
+**Example Output (Area Query):**
+```
+### 📍 Vienna District 1
+
+This central historic district offers **exceptional urban quality** with beautiful architecture, excellent transit, and vibrant public spaces.
+
+| Metric | Value |
+|--------|-------|
+| **Total Places** | **523** locations 🌟 |
+| **Most Common** | Movement (**156** places, 30%) |
+| **Average Rating** | **7.8** out of 10 ⭐ |
+| **Highest Rated** | **Stephansplatz** (9.2/10) 🏆 |
+
+**Key Highlights:**
+- **Movement** and **Beauty** are the strongest categories here
+- Over **200 places** rated above **8.0** - great quality overall!
+- The historic core has the **highest concentration** of top-rated spots
+- **Protection** ratings range from 5.2 to 9.8, showing variety in safety perceptions
+
+**Top 5 Comments from this Region:**
+1. "Absolutely stunning architecture and atmosphere!" - *Stephansplatz* (**9.2**/10) ⭐
+2. "Great public transport connections, very easy to get around" - *Karlsplatz* (**8.9**/10)
+3. "Beautiful pedestrian areas with lots of cafes" - *Graben Street* (**8.7**/10)
+4. "Can get crowded with tourists during summer" - *Stephansplatz* (**9.2**/10)
+5. "Well-maintained parks and green spaces" - *Stadtpark* (**8.5**/10)
+```
+
+**Example 2 (Specific Location):**
+```
+### 📍 Stephansplatz
+
+| Property | Details |
+|----------|---------|
+| 📍 **Location** | Stephansplatz 3, 1010 Vienna, Austria |
+| 🏷️ **Category** | **Beauty** |
+| ⭐ **Rating** | **9.2** out of 10 |
+| 📝 **What it's about** | Vienna's most famous public square with stunning Gothic cathedral |
+
+**About this location:**
+**Stephansplatz** is the heart of Vienna's historic center, featuring the magnificent **St. Stephen's Cathedral**. This medieval square attracts visitors from around the world and consistently ranks as one of **Vienna's most beautiful** locations.
+
+**💬 Top 5 Visitor Comments:**
+1. "Absolutely breathtaking architecture, especially the cathedral!" - *December 2023*
+2. "Perfect central meeting point with amazing atmosphere" - *November 2023*
+3. "Best at night when the cathedral is lit up" - *October 2023*
+4. "Can be very crowded, but worth visiting early morning" - *September 2023*
+5. "Great street performers and energy, very photogenic" - *August 2023*
+
+**What makes it special:**
+- **Gothic cathedral** dating back to the 12th century
+- **Bustling pedestrian zone** with street performers daily
+- Central **meeting point** and top tourist destination
+- Surrounded by **luxury shops** and historic buildings
+- **Excellent transit access** (U1, U3 metro lines)
+```
+
+Now provide your answer based on the database results above:"""
 
 
 class Neo4jAgent(BaseAgent):
@@ -21,16 +279,18 @@ class Neo4jAgent(BaseAgent):
         
         Args:
             config: Optional configuration dictionary with keys:
-                - neo4j_uri: Neo4j connection URI
-                - neo4j_username: Database username
-                - neo4j_password: Database password
-                - google_model: Google Generative AI model name
+                - uri: Neo4j connection URI
+                - username: Database username
+                - password: Database password
+                - model: Google Generative AI model name
                 - temperature: LLM temperature setting
         """
         super().__init__(config)
+        # If config is provided, use it, otherwise fall back to defaults (which might come from env vars in base_agent or here)
+        self.config = config or {}
         self.graph = self._connect_to_neo4j()
         self.llm = self._init_llm()
-        self.chain = self._build_chain()
+        # self.chain = self._build_chain() # Deprecated in favor of manual control
 
     def _connect_to_neo4j(self) -> Neo4jGraph:
         """
@@ -40,190 +300,503 @@ class Neo4jAgent(BaseAgent):
             Neo4jGraph instance connected to the database
         """
         return Neo4jGraph(
-            url=self.config.get("neo4j_uri", os.environ.get("NEO4J_URI", "neo4j+s://02f54a39.databases.neo4j.io")),
-            username=self.config.get("neo4j_username", os.environ.get("NEO4J_USERNAME", "neo4j")),
-            password=self.config.get("neo4j_password", os.environ.get("NEO4J_PASSWORD", "U9WSV67C8evx4nWCk48n3M0o7dX79T2XQ3cU1OJfP9c")),
+            url=self.config.get("uri", os.environ.get("NEO4J_URI", "neo4j+s://02f54a39.databases.neo4j.io")),
+            username=self.config.get("username", os.environ.get("NEO4J_USERNAME", "neo4j")),
+            password=self.config.get("password", os.environ.get("NEO4J_PASSWORD", "U9WSV67C8evx4nWCk48n3M0o7dX79T2XQ3cU1OJfP9c")),
         )
 
-    def _init_llm(self) -> ChatGoogleGenerativeAI:
+    def _init_llm(self):
         """
-        Initialize the Google Generative AI LLM.
+        Initialize the LLM based on configured provider.
+        Supports Ollama (default) or Google Generative AI.
         
         Returns:
-            Configured ChatGoogleGenerativeAI instance
+            Configured LLM instance (ChatOllama or ChatGoogleGenerativeAI)
         """
-        return ChatGoogleGenerativeAI(
-            model=self.config.get("google_model", os.environ.get("GOOGLE_MODEL", "gemini-flash-latest")),
-            temperature=self.config.get("temperature", 0),
-            convert_system_message_to_human=True,
-        )
-
-    def _build_chain(self) -> GraphCypherQAChain:
-        """
-        Build the LangChain GraphCypherQAChain for natural language to Cypher conversion.
+        llm_provider = self.config.get("llm_provider", os.environ.get("LLM_PROVIDER", "ollama"))
         
-        Returns:
-            Configured GraphCypherQAChain instance
+        if llm_provider == "ollama":
+            model_name = self.config.get("ollama_model", os.environ.get("OLLAMA_MODEL", "llama3.1"))
+            base_url = self.config.get("ollama_base_url", os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+            print(f"INFO: Initializing Neo4jAgent with Ollama model: {model_name} at {base_url}")
+            return ChatOllama(
+                model=model_name,
+                base_url=base_url,
+                temperature=self.config.get("temperature", 0),
+            )
+        else:  # google
+            model_name = self.config.get("google_model", os.environ.get("GOOGLE_MODEL", "gemini-flash-latest"))
+            print(f"INFO: Initializing Neo4jAgent with Google model: {model_name}")
+            return ChatGoogleGenerativeAI(
+                model=model_name,
+                temperature=self.config.get("temperature", 0),
+                convert_system_message_to_human=True,
+            )
+
+    def update_model(self, model_name: str) -> None:
         """
-        # Enhanced Cypher generation prompt
-        cypher_generation_template = """Task: Generate Cypher statement to query a graph database.
-Instructions:
-Use only the provided relationship types and properties in the schema.
-Do not use any other relationship types or properties that are not provided.
-
-Schema:
-{schema}
-
-Note: Do not include any explanations or apologies in your responses.
-Do not respond to any questions that might ask anything else than for you to construct a Cypher statement.
-Do not include any text except the generated Cypher statement.
-
-IMPORTANT: Always return comprehensive information about places:
-- Return the place node (p) with ALL its properties
-- Return related category nodes (c) with their descriptions
-- Return subcategory information if available
-- Return comments, grades, ratings, and reviews if they exist
-- Use OPTIONAL MATCH for relationships that might not exist
-
-For queries about specific locations with coordinates:
-- Use WHERE clauses to filter by exact coordinates or nearby coordinates
-- Example: WHERE p.latitude = lat AND p.longitude = lon
-- Or for nearby: WHERE abs(p.latitude - lat) < 0.001 AND abs(p.longitude - lon) < 0.001
-- Return all properties: category, subcategory, comments, grade, rating, etc.
-
-For geographic/region queries with coordinate bounds (North, South, East, West):
-- Use WHERE clauses to filter by latitude and longitude ranges
-- Example: WHERE p.latitude >= south AND p.latitude <= north AND p.longitude >= west AND p.longitude <= east
-
-The question is:
-{question}"""
-
-        cypher_prompt = PromptTemplate(
-            input_variables=["schema", "question"],
-            template=cypher_generation_template,
-        )
+        Update the LLM model used by the agent.
+        Useful for switching to a fine-tuned model at runtime.
         
-        qa_template = """You are a helpful assistant providing comprehensive information about locations in a database.
+        Args:
+            model_name: Name of the new model (e.g., 'gemini-pro' or 'tunedModels/my-model')
+        """
+        print(f"INFO: Switching Neo4jAgent model to: {model_name}")
+        self.config["model"] = model_name
+        self.llm = self._init_llm()
+        # Rebuild chain with new LLM
+        # self.chain = self._build_chain()
 
-Question: {question}
+    def _validate_cypher_query(self, query: str) -> None:
+        """
+        Validates that the Cypher query is safe and read-only.
+        Raises ValueError if destructive patterns are found.
+        """
+        forbidden_patterns = [
+            r'\bDELETE\b', r'\bDETACH\b', r'\bDROP\b', 
+            r'\bCREATE\b', r'\bMERGE\b', r'\bSET\b', 
+            r'\bREMOVE\b', r'\bCALL\s+apoc\.periodic\.iterate\b'
+        ]
+        
+        upper_query = query.upper()
+        for pattern in forbidden_patterns:
+            if re.search(pattern, upper_query):
+                raise ValueError(f"Destructive Cypher query detected and blocked: {pattern}")
 
-Database results:
-{context}
-
-IMPORTANT Instructions:
-1. When asked about a SPECIFIC location (with or without coordinates):
-   - Provide ALL available information about that location
-   - Include category, subcategory, comments/description, and grade/rating
-   - List all attributes systematically
-   - Format with proper sections using markdown
-   - Be thorough and informative
-
-2. When listing MULTIPLE places:
-   - Keep it concise
-   - Always include coordinates with place IDs
-   - Format: place_id: ChIJxxx (lat, lon)
-
-Use proper markdown syntax:
-- Use ### for main headers, #### for subheaders
-- Use **text** for bold emphasis on important information
-- Use - or * for bullet lists  
-- Use tables with | pipes for structured data when comparing multiple items
-- Use `text` for code/IDs
-- Use proper line breaks between sections
-- Use > for highlighting key information
-
-Structure for single location queries:
-### 📍 [Location Name]
-
-**Description/Comments:** [Detailed description or comments if available]
-
-#### 📂 Classification
-- **Category:** [main category]
-- **Subcategory:** [subcategory if available]
-- **Type:** [type if available]
-
-#### ⭐ Rating & Quality
-- **Grade:** [grade/rating if available]
-- **Reviews:** [review information if available]
-
-#### 📋 Basic Information
-- **Coordinates:** (lat, lon)
-- **Address:** [address if available]
-
-#### 🔑 Identifiers
-- **Place ID:** `place_id`
-[other IDs if available]
-
-#### 📝 Additional Details
-[Any other relevant information such as opening hours, contact info, etc.]
-
-Answer:"""
-        qa_prompt = PromptTemplate(
-            input_variables=["question", "context"],
-            template=qa_template,
-        )
-        return GraphCypherQAChain.from_llm(
-            llm=self.llm,
-            graph=self.graph,
-            cypher_prompt=cypher_prompt,
-            qa_prompt=qa_prompt,
-            allow_dangerous_requests=True,
-            verbose=True,
-            return_intermediate_steps=True,
-            top_k=10000,
-        )
-
-    def process(self, query: str, chat_history: List[Tuple[str, str]] = None) -> Dict[str, Any]:
+    def process(self, query: str, chat_history: List[Tuple[str, str]] = None, map_context: Dict[str, Any] = None, category_filter: str = None) -> Dict[str, Any]:
         """
         Process a natural language query and return results from Neo4j.
         
         Args:
             query: Natural language question about places
             chat_history: Optional list of (question, answer) tuples for context
+            map_context: Optional map state (bounds, center) for filtering
+            category_filter: Optional category ID to filter results (e.g., "1" for Beauty)
             
         Returns:
             Dictionary containing:
                 - answer: Text answer to the query
-                - context_records: Raw database records
+                - context_records: Raw database records (ALL results from DB)
                 - intermediate_steps: Query execution details
         """
         # Enhance question with chat history context
-        if chat_history:
-            context_text = "\n".join(
-                [f"Previous Q: {q}\nPrevious A: {a}" for q, a in chat_history[-2:]]
-            )
-            enhanced_query = f"{context_text}\n\nCurrent question: {query}"
-        else:
-            enhanced_query = query
+        enhanced_query = self._enhance_query_with_history(query, chat_history)
+
+        # Prepare map bounds info for the prompt
+        map_bounds_info = self._get_map_bounds_prompt(map_context, category_filter)
 
         try:
-            result = self.chain.invoke({"query": enhanced_query})
-            answer = result.get("result", "")
+            # 1. Generate Cypher
+            schema = self.graph.get_schema
+            cypher_prompt = PromptTemplate(
+                input_variables=["schema", "question", "map_bounds_info"],
+                template=CYPHER_GENERATION_TEMPLATE,
+            )
+            formatted_prompt = cypher_prompt.format(
+                schema=schema,
+                question=enhanced_query,
+                map_bounds_info=map_bounds_info
+            )
             
-            # Extract context records
-            context_records = []
-            intermediate_steps = result.get("intermediate_steps", [])
-            for step in intermediate_steps:
-                step_context = step.get("context")
-                if step_context:
-                    context_records = step_context
+            print(f"DEBUG: Generating Cypher...")
+            llm_response = self.llm.invoke(formatted_prompt)
+            generated_cypher = llm_response.content
+            
+            # Handle case where content is a dict or JSON structure
+            if isinstance(generated_cypher, dict):
+                # Extract from {'type': 'text', 'text': '...'}  structure
+                if 'text' in generated_cypher:
+                    generated_cypher = generated_cypher['text']
+                else:
+                    generated_cypher = str(generated_cypher)
+            
+            # Handle case where content is a list (some models return list of content blocks)
+            if isinstance(generated_cypher, list):
+                # Check if list contains dicts with 'text' key
+                if generated_cypher and isinstance(generated_cypher[0], dict) and 'text' in generated_cypher[0]:
+                    generated_cypher = " ".join(item.get('text', str(item)) for item in generated_cypher)
+                else:
+                    generated_cypher = " ".join(str(item) for item in generated_cypher) if generated_cypher else ""
+            
+            # Convert to string if not already
+            generated_cypher = str(generated_cypher)
+            
+            # Try to parse as JSON if it looks like a JSON string
+            if generated_cypher.startswith('{') and '"text"' in generated_cypher:
+                try:
+                    import json
+                    parsed = json.loads(generated_cypher)
+                    if isinstance(parsed, dict) and 'text' in parsed:
+                        generated_cypher = parsed['text']
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            
+            # Clean Cypher (remove markdown blocks)
+            generated_cypher = re.sub(r'```cypher', '', generated_cypher, flags=re.IGNORECASE)
+            generated_cypher = re.sub(r'```', '', generated_cypher).strip()
+            
+            print(f"⚡ GENERATED CYPHER:\n{generated_cypher}")
+
+            # 2. Validate Cypher
+            self._validate_cypher_query(generated_cypher)
+
+            # 3. Execute Cypher
+            print(f"DEBUG: Executing Cypher...")
+            context_records = self.graph.query(generated_cypher)
+            print(f"📊 OUTPUT RECORDS: {len(context_records)} records found")
+
+            # 4. Prepare context summary for LLM
+            context_summary = self._prepare_context_summary(context_records, category_filter)
+
+            # 5. Generate Answer
+            qa_prompt = PromptTemplate(
+                input_variables=["question", "context"],
+                template=QA_TEMPLATE,
+            )
+            formatted_qa_prompt = qa_prompt.format(
+                question=enhanced_query,
+                context=context_summary
+            )
+            
+            print(f"DEBUG: Generating Answer...")
+            answer_response = self.llm.invoke(formatted_qa_prompt)
+            answer = answer_response.content
+            
+            # Handle case where content is a list (some models return list of content blocks)
+            if isinstance(answer, list):
+                # Extract text from list items
+                text_parts = []
+                for item in answer:
+                    if isinstance(item, dict) and 'text' in item:
+                        text_parts.append(item['text'])
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                    else:
+                        text_parts.append(str(item))
+                answer = " ".join(text_parts) if text_parts else ""
+            
+            # Clean up answer - remove extras/signature fields if it's a dict
+            if isinstance(answer, dict):
+                answer = answer.get('text', str(answer))
+            
+            # Additional cleanup for dict-like strings
+            if isinstance(answer, str):
+                # Check if answer looks like a dict representation
+                if answer.strip().startswith("{'type':") or answer.strip().startswith('{"type":'):
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(answer)
+                        if isinstance(parsed, dict) and 'text' in parsed:
+                            answer = parsed['text']
+                    except:
+                        # Try regex extraction as fallback
+                        match = re.search(r"'text':\s*'(.*?)'(?:,\s*'extras'|$)", answer, re.DOTALL)
+                        if match:
+                            answer = match.group(1)
+                        else:
+                            match = re.search(r'"text":\s*"(.*?)"(?:,\s*"extras"|$)', answer, re.DOTALL)
+                            if match:
+                                answer = match.group(1)
+            
+            # Remove generic/unwanted phrases
+            unwanted_patterns = [
+                r'\.\s*\n\n.*?All locations shown on map\. Click pins for details\.',
+                r'💡 All locations shown on map\. Click pins for details\.',
+                r'Showing \w+ locations\.',
+                r'\n\nShowing \w+ locations\.\n\n.*?Click pins for details\.',
+                r"'extras':\s*\{[^}]*\}",  # Remove extras dict
+                r"'signature':\s*'[^']*'",  # Remove signature
+            ]
+            
+            for pattern in unwanted_patterns:
+                answer = re.sub(pattern, '', answer, flags=re.IGNORECASE | re.DOTALL)
+            
+            # Clean up extra newlines and whitespace
+            answer = re.sub(r'\n{3,}', '\n\n', answer).strip()
+            answer = re.sub(r'\s+\.', '.', answer)  # Remove space before periods
+
+            # --- LOGGING FOR USER MONITORING ---
+            print("\n" + "="*60)
+            print(f"🤖 INPUT QUERY: {enhanced_query}")
+            if category_filter:
+                print(f"🏷️ CATEGORY FILTER: {category_filter}")
+            print("-" * 60)
+            print(f"⚡ GENERATED CYPHER:\n{generated_cypher}")
+            print("-" * 60)
+            print(f"📊 OUTPUT RECORDS: {len(context_records)} records found")
+            print("="*60 + "\n")
+            # -----------------------------------
+
+            # If we have a Cypher query and limited results, fetch ALL results for the map
+            all_records = self._fetch_full_results(context_records, generated_cypher, category_filter)
 
             # If AI doesn't know, format results
             if "don't know" in answer.lower():
-                answer = self._format_results(context_records)
+                answer = self._format_results(all_records)
+            
+            # For regional queries, ensure we mention all points are on the map
+            is_regional_query = self._is_regional_query(query)
+            if is_regional_query and len(all_records) > 10:
+                if "map" not in answer.lower():
+                    answer = answer + f"\n\n💡 All {len(all_records)} locations are displayed on the map. Click any pin for detailed information."
+            
+            # For large result sets, enhance the answer with total count
+            if len(all_records) > 50 and not is_regional_query:
+                if not any(str(len(all_records)) in answer for _ in [1]):
+                    answer = f"**Found {len(all_records)} locations total.** All locations will be shown on the map.\n\n" + answer
 
             return {
                 "ok": True,
                 "answer": answer,
-                "context_records": context_records,
-                "intermediate_steps": intermediate_steps,
+                "context_records": all_records,
+                "intermediate_steps": [{"query": generated_cypher, "context": context_records}],
             }
         except Exception as e:
+            print(f"ERROR: {e}")
             return {
                 "ok": False,
                 "error": str(e),
                 "context_records": [],
             }
+
+    def _enhance_query_with_history(self, query: str, chat_history: List[Tuple[str, str]]) -> str:
+        if chat_history:
+            context_text = "\n".join(
+                [f"Previous Q: {q}\nPrevious A: {a}" for q, a in chat_history[-2:]]
+            )
+            return f"{context_text}\n\nCurrent question: {query}"
+        return query
+
+    def _get_map_bounds_prompt(self, map_context: Dict[str, Any], category_filter: str = None) -> str:
+        prompt_parts = []
+        
+        # Category ID to Name mapping
+        CATEGORY_ID_MAPPING = {
+            '1': 'Beauty',
+            '2': 'Sound',
+            '3': 'Movement',
+            '4': 'Protection',
+            '5': 'Climate Comfort',
+            '6': 'Activities'
+        }
+        
+        # Check if this is a single point query
+        is_single_point = False
+        if map_context and "clickedPoint" in map_context:
+            clicked = map_context["clickedPoint"]
+            if clicked and "lat" in clicked and "lng" in clicked:
+                is_single_point = True
+                prompt_parts.append(f"""
+USER CLICKED ON A SPECIFIC POINT:
+Latitude: {clicked['lat']}
+Longitude: {clicked['lng']}
+
+CRITICAL: This is a query about ONE SPECIFIC LOCATION at these exact coordinates.
+Use this pattern:
+```
+MATCH (p:places)
+WHERE abs(p.latitude - {clicked['lat']}) < 0.0001 AND abs(p.longitude - {clicked['lng']}) < 0.0001
+OPTIONAL MATCH (p)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+LIMIT 1
+```
+Return ONLY this one place, not nearby places.
+""")
+        
+        if category_filter and category_filter != 'all':
+            category_name = CATEGORY_ID_MAPPING.get(category_filter, f"Category ID {category_filter}")
+            if is_single_point:
+                # For single point with category filter
+                prompt_parts.append(f"""
+Category filter active: {category_name} (ID: {category_filter})
+Filter the single point result by this category if applicable.
+""")
+            else:
+                # For area queries with category filter
+                prompt_parts.append(f"""
+CATEGORY FILTER ACTIVE: User has selected "{category_name}" category (ID: {category_filter}).
+
+CRITICAL: Use MATCH (not OPTIONAL MATCH) for category relationships when filtering:
+
+CORRECT PATTERN:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE c.category_id = {category_filter}
+  AND p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+```
+
+WRONG PATTERN (returns nulls):
+```
+MATCH (p:places)
+OPTIONAL MATCH (p)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE c.category_id = {category_filter}  -- This is too late!
+```
+
+Category IDs: 1=Beauty, 2=Sound, 3=Movement, 4=Protection, 5=Climate Comfort, 6=Activities
+
+Return ALL places with this category. Do NOT use LIMIT.
+""")
+        
+        if map_context and "bounds" in map_context and not is_single_point:
+            b = map_context["bounds"]
+            north = b.get('north')
+            south = b.get('south')
+            east = b.get('east')
+            west = b.get('west')
+            
+            # Only add bounds if all values are present
+            if all(v is not None for v in [north, south, east, west]):
+                bounds_clause = f"""
+MAP BOUNDS PROVIDED:
+North: {north}
+South: {south}
+East: {east}
+West: {west}
+
+INSTRUCTION: Unless the question explicitly mentions a different location (e.g. "in Paris"), 
+restrict the query to these bounds using:
+WHERE p.latitude >= {south} AND p.latitude <= {north} 
+AND p.longitude >= {west} AND p.longitude <= {east}
+"""
+                prompt_parts.append(bounds_clause)
+        
+        if not prompt_parts:
+            return "No specific map bounds or category filter provided. Query the entire database."
+        
+        return "\n".join(prompt_parts)
+
+    def _fetch_full_results(self, context_records: List[Dict], cypher_query: str, category_filter: str = None) -> List[Dict]:
+        if cypher_query and len(context_records) >= 200:
+            try:
+                full_query = re.sub(r'\s+LIMIT\s+\d+', '', cypher_query, flags=re.IGNORECASE)
+                
+                # If category filter is applied and not already in the query, add it
+                if category_filter and category_filter != 'all' and 'c.category_id' not in full_query:
+                    # Try to add category filter to WHERE clause
+                    if 'WHERE' in full_query.upper():
+                        # Add to existing WHERE clause
+                        full_query = re.sub(
+                            r'(WHERE\s+)',
+                            rf'\1exists((p)-[:BELONGS_TO]->(c:Category)) AND c.category_id = {category_filter} AND ',
+                            full_query,
+                            count=1,
+                            flags=re.IGNORECASE
+                        )
+                    else:
+                        # Add new WHERE clause before RETURN
+                        full_query = re.sub(
+                            r'(\s+RETURN\s+)',
+                            rf' WHERE exists((p)-[:BELONGS_TO]->(c:Category)) AND c.category_id = {category_filter}\1',
+                            full_query,
+                            count=1,
+                            flags=re.IGNORECASE
+                        )
+                    print(f"INFO: Added category filter {category_filter} to full query")
+                
+                all_records = self.graph.query(full_query)
+                print(f"INFO: Retrieved {len(all_records)} total records (was limited to {len(context_records)} for LLM)")
+                return all_records
+            except Exception as e:
+                print(f"WARN: Could not fetch full results: {e}")
+        return context_records
+
+    def _prepare_context_summary(self, records: List[Dict], category_filter: str = None) -> str:
+        """
+        Prepare a well-formatted context summary from database records for the LLM.
+        
+        Args:
+            records: Raw database records from Neo4j
+            category_filter: Optional category ID if filtering
+            
+        Returns:
+            Formatted string with relevant information for LLM
+        """
+        if not records:
+            return "No locations found in the database for this query."
+        
+        # Category mapping
+        CATEGORY_NAMES = {
+            1: "Beauty", 2: "Sound", 3: "Movement", 
+            4: "Protection", 5: "Climate Comfort", 6: "Activities"
+        }
+        
+        total_count = len(records)
+        
+        # Collect statistics
+        category_counts = {}
+        locations = []
+        
+        for record in records[:100]:  # Process up to 100 for detailed info
+            p = record.get('p', {})
+            c = record.get('c', {})
+            pg = record.get('pg', {})
+            
+            if not p:
+                continue
+            
+            location_name = p.get('location', 'Unknown Location')
+            lat = p.get('latitude')
+            lon = p.get('longitude')
+            
+            # Extract category info
+            category_id = c.get('category_id') if c else None
+            category_name = CATEGORY_NAMES.get(category_id, 'Uncategorized') if category_id else 'Uncategorized'
+            
+            # Track category counts
+            if category_name not in category_counts:
+                category_counts[category_name] = 0
+            category_counts[category_name] += 1
+            
+            # Extract grade
+            grade = None
+            if pg:
+                grade = pg.get('grade') or pg.get('value')
+            
+            # Build location entry
+            location_info = {
+                'name': location_name,
+                'category': category_name,
+                'grade': grade,
+                'coordinates': f"({lat}, {lon})" if lat and lon else None
+            }
+            locations.append(location_info)
+        
+        # Build context summary
+        summary_parts = []
+        
+        # 1. Overview
+        summary_parts.append(f"Total Locations: {total_count}")
+        
+        if category_filter:
+            filter_name = CATEGORY_NAMES.get(int(category_filter), f"Category {category_filter}")
+            summary_parts.append(f"Filtered by: {filter_name}")
+        
+        # 2. Category breakdown
+        if category_counts:
+            summary_parts.append("\nCategory Distribution:")
+            for cat, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True):
+                summary_parts.append(f"  - {cat}: {count} locations")
+        
+        # 3. Sample locations (first 30)
+        if locations:
+            summary_parts.append(f"\nSample Locations (showing {min(30, len(locations))} of {total_count}):")
+            for i, loc in enumerate(locations[:30], 1):
+                loc_str = f"{i}. {loc['name']} - Category: {loc['category']}"
+                if loc['grade']:
+                    loc_str += f", Grade: {loc['grade']}"
+                summary_parts.append(loc_str)
+        
+        return "\n".join(summary_parts)
+
+    def _is_regional_query(self, query: str) -> bool:
+        return any(keyword in query.lower() for keyword in [
+            'region', 'area', 'north', 'south', 'east', 'west', 
+            'bound', 'rectangle', 'box', 'zone', 'in the region'
+        ])
 
     def _format_results(self, context: List[Dict[str, Any]]) -> str:
         """
@@ -251,25 +824,26 @@ Answer:"""
         else:
             output.append(f"### {total_count} locations\n")
         
-        # Create markdown table with coordinates always included
-        output.append("| # | Location | Place ID (Coordinates) |")
-        output.append("|---|----------|------------------------|")
+        # Create markdown table with locations and categories
+        output.append("| # | Location | Category |")
+        output.append("|---|----------|----------|")
         
         for i, record in enumerate(context[:preview_count], 1):
             if "p" in record:
                 place = record["p"]
                 location = place.get("location", "Unknown")
-                lat = place.get("latitude", "N/A")
-                lon = place.get("longitude", "N/A")
-                pid = place.get("place_id", "N/A")
                 
-                # Format with coordinates
-                if lat != "N/A" and lon != "N/A":
-                    pid_coords = f"`{pid}` ({lat:.6f}, {lon:.6f})"
-                else:
-                    pid_coords = f"`{pid}` (N/A)"
+                # Get category - prioritize c.name over c.description, then p.category
+                category = "N/A"
+                if "c" in record and record["c"]:
+                    # Try c.name first (category name), fallback to c.description
+                    category = record["c"].get("name", record["c"].get("description", "N/A"))
+                elif "category" in place:
+                    category = place.get("category", "N/A")
+                elif "p" in record and record["p"] and "category" in record["p"]:
+                    category = record["p"].get("category", "N/A")
                 
-                output.append(f"| {i} | **{location}** | {pid_coords} |")
+                output.append(f"| {i} | **{location}** | {category} |")
         
         # Add footer if there are more results
         if total_count > preview_count:

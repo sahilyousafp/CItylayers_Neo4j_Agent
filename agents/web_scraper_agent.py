@@ -107,6 +107,88 @@ class WebScraperAgent(BaseAgent):
                 "recommendation": None,
             }
 
+    def fetch_location_info(self, location_name: str, lat: float = None, lon: float = None) -> Dict[str, Any]:
+        """
+        Fetch general information about a location from Wikipedia API.
+        
+        Args:
+            location_name: Name of the location
+            lat: Optional latitude for geo-search
+            lon: Optional longitude for geo-search
+            
+        Returns:
+            Dictionary with location information
+        """
+        try:
+            # Use Wikipedia API
+            base_url = "https://en.wikipedia.org/w/api.php"
+            
+            # Search for the article
+            search_params = {
+                "action": "query",
+                "format": "json",
+                "list": "search",
+                "srsearch": location_name,
+                "srlimit": 1
+            }
+            
+            response = requests.get(base_url, params=search_params, timeout=self.timeout)
+            response.raise_for_status()
+            search_data = response.json()
+            
+            if not search_data.get("query", {}).get("search"):
+                return {"ok": False, "error": "No Wikipedia article found"}
+            
+            # Get the page title
+            page_title = search_data["query"]["search"][0]["title"]
+            
+            # Get page extract and coordinates
+            page_params = {
+                "action": "query",
+                "format": "json",
+                "titles": page_title,
+                "prop": "extracts|coordinates|pageimages",
+                "exintro": True,
+                "explaintext": True,
+                "exsentences": 3,
+                "piprop": "original"
+            }
+            
+            response = requests.get(base_url, params=page_params, timeout=self.timeout)
+            response.raise_for_status()
+            page_data = response.json()
+            
+            pages = page_data.get("query", {}).get("pages", {})
+            if not pages:
+                return {"ok": False, "error": "No page data found"}
+            
+            page = list(pages.values())[0]
+            
+            info = {
+                "ok": True,
+                "title": page.get("title", location_name),
+                "description": page.get("extract", ""),
+                "url": f"https://en.wikipedia.org/wiki/{page_title.replace(' ', '_')}"
+            }
+            
+            # Add coordinates if available
+            if "coordinates" in page and page["coordinates"]:
+                coords = page["coordinates"][0]
+                info["lat"] = coords.get("lat")
+                info["lon"] = coords.get("lon")
+            
+            # Add image if available
+            if "original" in page.get("pageimages", {}):
+                info["image"] = page["pageimages"]["original"]["source"]
+            
+            return info
+            
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": f"Failed to fetch location info: {str(e)}"
+            }
+
     def _scrape_url(self, url: str) -> Dict[str, Any]:
         """
         Scrape a single URL and extract content.
