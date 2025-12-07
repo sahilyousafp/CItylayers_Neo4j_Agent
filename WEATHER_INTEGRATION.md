@@ -10,7 +10,12 @@ The meteostat weather agent has been integrated into the application to display 
 - **Functionality**: Click the "Weather" button to toggle weather heatmap on/off
 - **Visual**: Button highlights when active
 
-### 2. Automatic Detection
+### 2. CityLayers Data Source Toggle
+- **Functionality**: Click the "CityLayers" button to toggle location data on/off
+- **Use Case**: View weather data alone without location markers
+- **Behavior**: Locations and markers are hidden when toggled off
+
+### 3. Automatic Detection
 When users ask about climate-related topics, the system:
 - Detects "Climate Comfort" category (ID: 5)
 - Automatically enables weather heatmap
@@ -19,7 +24,7 @@ When users ask about climate-related topics, the system:
 
 **Trigger keywords**: climate, comfort, weather, temperature, hot, cold, shade, wind, rain
 
-### 3. Weather Heatmap Visualization
+### 4. Weather Heatmap Visualization
 - **Color scheme**:
   - 🔵 Blue → Cold temperatures
   - 🟢 Green → Moderate temperatures
@@ -27,7 +32,15 @@ When users ask about climate-related topics, the system:
   - 🟠 Orange → Hot temperatures
   - 🔴 Red → Very hot temperatures
 - **Data**: Based on recent 7-day average temperatures
-- **Coverage**: 3×3 grid across visible map region
+- **Coverage**: 7×7 dense grid for smooth, full-area coverage
+- **Display**: Smooth gradient without visible grid points
+
+### 5. Temperature Display
+- **Location**: Integrated into the "Locations on Map" panel (bottom-right)
+- **Shows**:
+  - Location count (top)
+  - Average temperature in °C (bottom, blue text)
+- **Updates**: Automatically when weather data is fetched
 
 ## How to Use
 
@@ -36,6 +49,12 @@ When users ask about climate-related topics, the system:
 2. Click the **Weather** button in the top-right data sources panel
 3. Wait a few seconds for weather data to load
 4. The temperature heatmap will overlay the map
+5. Check the bottom-right panel for average temperature
+
+### View Weather Only
+1. Enable **Weather** data source
+2. Disable **CityLayers** data source
+3. See temperature heatmap without location markers
 
 ### Automatic Activation
 1. Ask a question about climate comfort, e.g.:
@@ -46,6 +65,7 @@ When users ask about climate-related topics, the system:
    - Filter for Climate Comfort category
    - Enable weather heatmap
    - Display both location points AND temperature overlay
+   - Show average temperature in the panel
 
 ## Technical Details
 
@@ -54,25 +74,35 @@ When users ask about climate-related topics, the system:
 - Fetches weather data from meteostat API
 - Returns temperature points in JSON format
 - Uses center-point sampling with interpolation for performance
+- Generates 7×7 grid for smooth coverage (49 points)
 
 ### Frontend (JavaScript)
-- `weatherEnabled` state variable tracks toggle status
+- `weatherEnabled` state variable tracks weather toggle
+- `cityLayersEnabled` state variable tracks location toggle
 - `fetchWeatherData()` retrieves data from backend
 - `createWeatherHeatmapLayer()` renders deck.gl HeatmapLayer
+- `updateLocationCountDisplay()` shows temperature in panel
 - Automatic activation on category 5 detection
+
+### Heatmap Parameters (Optimized for Coverage)
+- **radiusPixels**: 120 (increased for smooth blending)
+- **intensity**: 2 (enhanced visibility)
+- **threshold**: 0.01 (lower for wider spread)
+- **opacity**: 0.7 (balanced transparency)
+- **Grid**: 7×7 points with slight temperature variation
 
 ### Performance Optimization
 - Single center-point weather lookup (fast)
-- Interpolated grid for smooth visualization
-- Small random variations for natural appearance
+- Interpolated dense grid for smooth visualization
+- Small random variations (±1.5°C) for natural appearance
 - Error handling with user-friendly messages
 
 ## Error Handling
 
-If weather data fails to load, you'll see:
-- Error message in chat window
-- Console logs for debugging
+If weather data fails to load:
 - Weather toggle automatically disabled
+- Console logs for debugging
+- No chat message clutter
 
 Common issues:
 - **No data available**: Weather station too far from region
@@ -91,34 +121,42 @@ Common issues:
 2. Navigate to http://localhost:5000
 3. Test manual toggle:
    - Click Weather button
-   - Verify heatmap appears
-4. Test automatic activation:
+   - Verify smooth heatmap appears covering full area
+   - Check bottom-right panel for temperature
+4. Test CityLayers toggle:
+   - Disable CityLayers
+   - Verify markers disappear but weather remains
+5. Test automatic activation:
    - Ask: "What's the climate comfort in London?"
    - Verify weather heatmap auto-enables
-   - Verify category filter shows "Climate Comfort"
+   - Verify temperature appears in panel
 
-## Future Enhancements
+## Visual Improvements
 
-Potential improvements:
-- [ ] Humidity and precipitation overlays
-- [ ] Historical temperature trends
-- [ ] Seasonal comparisons
-- [ ] Wind speed/direction visualization
-- [ ] UV index and air quality data
-- [ ] Time-of-day temperature variations
-- [ ] Climate comparison between cities
+### Before
+- 3×3 grid with visible points
+- Patchy coverage with gaps
+- Temperature in chat messages
+- CityLayers always on
+
+### After
+- 7×7 dense grid with smooth gradient
+- Full area coverage without gaps
+- Temperature in dedicated panel section
+- Both data sources toggleable
+- No interference between weather and markers
 
 ## Files Modified
 
-1. `app.py` - Added `/weather-data` endpoint
-2. `agents/__init__.py` - Exported MeteostatAgent
-3. `templates/index.html` - Added Weather toggle button
-4. `static/js/app.js` - Added weather logic and heatmap layer
-5. `agents/meteostat_agent.py` - (existing, no changes)
+1. `app.py` - Increased grid density (7×7), adjusted variation
+2. `static/js/app.js` - Enhanced heatmap params, added CityLayers toggle, moved temp to panel
+3. `WEATHER_INTEGRATION.md` - Updated documentation
 
 ## Notes
 
 - Weather data represents recent averages, not real-time
-- Heatmap uses interpolation for smooth gradients
+- Heatmap uses dense interpolation for smooth gradients
 - Temperature values shown in Celsius (°C)
-- Grid resolution optimized for performance vs accuracy
+- Grid resolution optimized for visual smoothness
+- Weather layer doesn't interfere with marker clicks
+- Both data sources can be used independently or together
