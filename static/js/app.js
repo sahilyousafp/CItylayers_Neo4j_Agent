@@ -495,17 +495,17 @@
             const weatherLayer = createWeatherHeatmapLayer();
             layers.push(weatherLayer);
             
-            // Show weather legend with cooler tones only (reversed order - hot to cold)
+            // Show weather legend with actual gradient colors (reversed order - hot to cold)
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             updateOverlay("Weather Temperature", [
-                { color: "rgb(180, 230, 250)", label: "> 30°C (Very Hot)" },
-                { color: "rgb(150, 220, 245)", label: "25-30°C (Hot)" },
-                { color: "rgb(120, 200, 240)", label: "20-25°C (Warm)" },
-                { color: "rgb(90, 170, 230)", label: "15-20°C (Mild)" },
-                { color: "rgb(60, 140, 220)", label: "10-15°C (Cool)" },
-                { color: "rgb(30, 110, 200)", label: "5-10°C (Cold)" },
-                { color: "rgb(0, 80, 180)", label: "0-5°C (Very Cold)" },
-                { color: "rgb(0, 50, 150)", label: "< 0°C (Freezing)" }
+                { color: "rgb(255, 180, 180)", label: "> 30°C (Very Hot)" },
+                { color: "rgb(240, 200, 150)", label: "25-30°C (Hot)" },
+                { color: "rgb(200, 220, 180)", label: "20-25°C (Warm)" },
+                { color: "rgb(150, 200, 200)", label: "15-20°C (Mild)" },
+                { color: "rgb(120, 180, 240)", label: "10-15°C (Cool)" },
+                { color: "rgb(100, 150, 240)", label: "5-10°C (Cold)" },
+                { color: "rgb(50, 100, 220)", label: "0-5°C (Very Cold)" },
+                { color: "rgb(0, 50, 200)", label: "< 0°C (Freezing)" }
             ]);
         } else {
             console.log('Weather not enabled or no data:', { weatherEnabled, dataLength: weatherHeatmapData.length });
@@ -770,12 +770,14 @@
             intensity: 1.2,
             threshold: 0.03,
             colorRange: [
-                [200, 70, 70, 220],     // Deep Red (Low grade)
-                [200, 120, 40, 220],    // Deep Orange
-                [200, 180, 60, 220],    // Deep Yellow
-                [120, 200, 80, 220],    // Deep Green
-                [80, 160, 200, 220],    // Deep Sky Blue
-                [70, 120, 200, 220]     // Deep Blue (High grade)
+                [0, 50, 150],          // Deep Navy Blue (low grade)
+                [0, 80, 180],          // Navy Blue
+                [30, 110, 200],        // Deep Blue
+                [60, 140, 220],        // Blue
+                [90, 170, 230],        // Light Blue
+                [120, 200, 240],       // Sky Blue
+                [150, 220, 245],       // Pale Blue
+                [180, 230, 250]        // Very Pale Blue (high grade)
             ],
             opacity: 0.85,
             aggregation: 'MEAN'
@@ -809,14 +811,14 @@
             intensity: 2.5,
             threshold: 0.02,
             colorRange: [
-                [0, 50, 150],          // Deep Navy Blue (cold)
-                [0, 80, 180],          // Navy Blue
-                [30, 110, 200],        // Deep Blue
-                [60, 140, 220],        // Blue
-                [90, 170, 230],        // Light Blue
-                [120, 200, 240],       // Sky Blue
-                [150, 220, 245],       // Pale Blue
-                [180, 230, 250]        // Very Pale Blue (hot)
+                [0, 50, 200],          // Deep Blue (cold)
+                [50, 100, 220],        // Blue
+                [100, 150, 240],       // Medium Blue
+                [120, 180, 240],       // Light Blue
+                [150, 200, 200],       // Blue-Cyan
+                [200, 220, 180],       // Yellow-Green
+                [240, 200, 150],       // Light Orange
+                [255, 180, 180]        // Light Red (hot)
             ],
             opacity: 1.0,
             pickable: true,
