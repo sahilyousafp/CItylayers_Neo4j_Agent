@@ -397,6 +397,40 @@
     });
     map.addControl(deckOverlay);
 
+    // Add map mousemove handler for weather temperature tracking
+    map.on('mousemove', (e) => {
+        if (weatherEnabled && weatherHeatmapData.length > 0 && temperatureHoverInfo) {
+            const { lng, lat } = e.lngLat;
+            
+            // Find nearest weather point to cursor
+            let nearestPoint = null;
+            let minDistance = Infinity;
+            
+            weatherHeatmapData.forEach(point => {
+                const dx = point.lon - lng;
+                const dy = point.lat - lat;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestPoint = point;
+                }
+            });
+            
+            if (nearestPoint) {
+                temperatureHoverInfo.textContent = `${nearestPoint.temperature.toFixed(1)}°C`;
+            }
+        }
+    });
+    
+    // Reset temperature display when mouse leaves map
+    map.on('mouseout', () => {
+        if (temperatureHoverInfo && weatherEnabled && weatherHeatmapData.length > 0) {
+            const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
+            temperatureHoverInfo.textContent = `${avgTemp}°C`;
+        }
+    });
+
     // Helper to add 3D buildings
     function add3DBuildingsLayer() {
         if (map.getLayer('add-3d-buildings')) return;
@@ -489,26 +523,8 @@
     function updateDeckLayers() {
         const layers = [];
         
-        // Add weather heatmap layer if weather is enabled
-        if (weatherEnabled && weatherHeatmapData.length > 0) {
-            console.log('Adding weather layer with', weatherHeatmapData.length, 'data points');
-            const weatherLayer = createWeatherHeatmapLayer();
-            layers.push(weatherLayer);
-            
-            // Show weather legend with classic heatmap colors (reversed order - hot to cold)
-            const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
-            updateOverlay("Weather Temperature", [
-                { color: "rgb(255, 0, 0)", label: "> 30°C (Very Hot)" },
-                { color: "rgb(255, 128, 0)", label: "25-30°C (Hot)" },
-                { color: "rgb(255, 255, 0)", label: "20-25°C (Warm)" },
-                { color: "rgb(0, 255, 0)", label: "15-20°C (Mild)" },
-                { color: "rgb(0, 255, 255)", label: "10-15°C (Cool)" },
-                { color: "rgb(0, 128, 255)", label: "5-10°C (Cold)" },
-                { color: "rgb(0, 0, 255)", label: "< 5°C (Very Cold)" }
-            ]);
-        } else {
-            console.log('Weather not enabled or no data:', { weatherEnabled, dataLength: weatherHeatmapData.length });
-        }
+        // Weather is enabled but no heatmap - just track cursor for temperature display
+        // Temperature panel will update via map mousemove event handler
         
         // Filter data by active category
         const data = mapState.features.filter(f => {
@@ -1545,7 +1561,7 @@
             }
             
             if (temperatureHoverInfo) {
-                temperatureHoverInfo.textContent = 'Hover over map for local temp';
+                temperatureHoverInfo.textContent = `${avgTemp}°C`;
             }
         } else {
             // Hide panel when weather is disabled
