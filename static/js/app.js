@@ -714,13 +714,14 @@
         
         // Define color scale based on actual rendered heatmap colors (using 100 scale for legend)
         // These match the colorRange used in the HeatmapLayer below
+        // Deep Blue = Excellent (high grade), Light Blue = Very Low (low grade)
         const colorStops = [
-            { grade: 10, color: [0, 50, 150, 217], label: "Very Low" },      // Deep Navy Blue
-            { grade: 30, color: [30, 110, 200, 217], label: "Low" },         // Deep Blue
-            { grade: 50, color: [90, 170, 230, 217], label: "Medium" },      // Light Blue
-            { grade: 70, color: [120, 200, 240, 217], label: "Good" },       // Sky Blue
-            { grade: 85, color: [150, 220, 245, 217], label: "Very Good" },  // Pale Blue
-            { grade: 100, color: [180, 230, 250, 217], label: "Excellent" }  // Very Pale Blue
+            { grade: 10, color: [180, 230, 250, 217], label: "Very Low" },      // Very Pale Blue
+            { grade: 30, color: [150, 220, 245, 217], label: "Low" },           // Pale Blue
+            { grade: 50, color: [120, 200, 240, 217], label: "Medium" },        // Sky Blue
+            { grade: 70, color: [90, 170, 230, 217], label: "Good" },           // Light Blue
+            { grade: 85, color: [30, 110, 200, 217], label: "Very Good" },      // Deep Blue
+            { grade: 100, color: [0, 50, 150, 217], label: "Excellent" }        // Deep Navy Blue
         ];
         
         // Build dynamic legend based on actual grade range
@@ -770,14 +771,14 @@
             intensity: 1.2,
             threshold: 0.03,
             colorRange: [
-                [0, 50, 150],          // Deep Navy Blue (low grade)
-                [0, 80, 180],          // Navy Blue
-                [30, 110, 200],        // Deep Blue
-                [60, 140, 220],        // Blue
-                [90, 170, 230],        // Light Blue
-                [120, 200, 240],       // Sky Blue
+                [180, 230, 250],       // Very Pale Blue (low grade)
                 [150, 220, 245],       // Pale Blue
-                [180, 230, 250]        // Very Pale Blue (high grade)
+                [120, 200, 240],       // Sky Blue
+                [90, 170, 230],        // Light Blue
+                [60, 140, 220],        // Blue
+                [30, 110, 200],        // Deep Blue
+                [0, 80, 180],          // Navy Blue
+                [0, 50, 150]           // Deep Navy Blue (high grade)
             ],
             opacity: 0.85,
             aggregation: 'MEAN'
