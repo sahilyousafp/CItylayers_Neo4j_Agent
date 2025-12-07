@@ -495,17 +495,16 @@
             const weatherLayer = createWeatherHeatmapLayer();
             layers.push(weatherLayer);
             
-            // Show weather legend with actual gradient colors (reversed order - hot to cold)
+            // Show weather legend with classic heatmap colors (reversed order - hot to cold)
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             updateOverlay("Weather Temperature", [
-                { color: "rgb(255, 180, 180)", label: "> 30°C (Very Hot)" },
-                { color: "rgb(240, 200, 150)", label: "25-30°C (Hot)" },
-                { color: "rgb(200, 220, 180)", label: "20-25°C (Warm)" },
-                { color: "rgb(150, 200, 200)", label: "15-20°C (Mild)" },
-                { color: "rgb(120, 180, 240)", label: "10-15°C (Cool)" },
-                { color: "rgb(100, 150, 240)", label: "5-10°C (Cold)" },
-                { color: "rgb(50, 100, 220)", label: "0-5°C (Very Cold)" },
-                { color: "rgb(0, 50, 200)", label: "< 0°C (Freezing)" }
+                { color: "rgb(255, 0, 0)", label: "> 30°C (Very Hot)" },
+                { color: "rgb(255, 128, 0)", label: "25-30°C (Hot)" },
+                { color: "rgb(255, 255, 0)", label: "20-25°C (Warm)" },
+                { color: "rgb(0, 255, 0)", label: "15-20°C (Mild)" },
+                { color: "rgb(0, 255, 255)", label: "10-15°C (Cool)" },
+                { color: "rgb(0, 128, 255)", label: "5-10°C (Cold)" },
+                { color: "rgb(0, 0, 255)", label: "< 5°C (Very Cold)" }
             ]);
         } else {
             console.log('Weather not enabled or no data:', { weatherEnabled, dataLength: weatherHeatmapData.length });
@@ -807,18 +806,17 @@
             data: weatherHeatmapData,
             getPosition: d => [d.lon, d.lat],
             getWeight: d => d.value || d.temperature,
-            radiusPixels: 150,
-            intensity: 2.5,
-            threshold: 0.02,
+            radiusPixels: 200,     // Larger radius for smoother zones
+            intensity: 3.0,        // Higher intensity for better blending
+            threshold: 0.01,       // Lower threshold for wider spread
             colorRange: [
-                [0, 50, 200],          // Deep Blue (cold)
-                [50, 100, 220],        // Blue
-                [100, 150, 240],       // Medium Blue
-                [120, 180, 240],       // Light Blue
-                [150, 200, 200],       // Blue-Cyan
-                [200, 220, 180],       // Yellow-Green
-                [240, 200, 150],       // Light Orange
-                [255, 180, 180]        // Light Red (hot)
+                [0, 0, 255],           // Pure Blue (freezing)
+                [0, 128, 255],         // Light Blue (cold)
+                [0, 255, 255],         // Cyan (cool)
+                [0, 255, 0],           // Green (mild)
+                [255, 255, 0],         // Yellow (warm)
+                [255, 128, 0],         // Orange (hot)
+                [255, 0, 0]            // Red (very hot)
             ],
             opacity: 1.0,
             pickable: true,
