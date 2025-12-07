@@ -491,7 +491,9 @@
         
         // Add weather heatmap layer if weather is enabled
         if (weatherEnabled && weatherHeatmapData.length > 0) {
-            layers.push(createWeatherHeatmapLayer());
+            console.log('Adding weather layer with', weatherHeatmapData.length, 'data points');
+            const weatherLayer = createWeatherHeatmapLayer();
+            layers.push(weatherLayer);
             
             // Show weather legend
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
@@ -504,6 +506,8 @@
                 { color: "rgb(255, 180, 50)", label: "25-30°C (Hot)" },
                 { color: "rgb(255, 50, 50)", label: "> 30°C (Very Hot)" }
             ]);
+        } else {
+            console.log('Weather not enabled or no data:', { weatherEnabled, dataLength: weatherHeatmapData.length });
         }
         
         // Filter data by active category
@@ -589,15 +593,18 @@
             ]);
         }
         else {
-            // Mapbox mode - no deck layers, just markers (handled separately)
-            updateOverlay("Map View", []);
+            // Mapbox mode - no deck layers for locations, just markers
+            // But still show weather if enabled
+            if (!weatherEnabled || weatherHeatmapData.length === 0) {
+                updateOverlay("Map View", []);
+            }
             renderMapboxMarkers();
         }
 
         deckOverlay.setProps({ layers });
 
         // Toggle overlay visibility
-        if (currentVizMode === 'mapbox') {
+        if (currentVizMode === 'mapbox' && (!weatherEnabled || weatherHeatmapData.length === 0)) {
             overlayPanel.classList.add('hidden');
         } else {
             overlayPanel.classList.remove('hidden');
@@ -848,33 +855,17 @@
      * Handle hover over weather heatmap to show local temperature
      */
     function handleWeatherHover(info) {
-        if (!info || !temperatureHoverInfo) return;
+        if (!temperatureHoverInfo) return;
         
-        if (info.object && info.object.temperature) {
+        if (info && info.object && info.object.temperature) {
             // Show temperature of the hexagon being hovered
             temperatureHoverInfo.textContent = `Local: ${info.object.temperature.toFixed(1)}°C`;
-        } else if (info.coordinate && weatherHeatmapData.length > 0) {
-            // Fallback: find nearest weather point if not hovering directly on hexagon
-            const [lon, lat] = info.coordinate;
-            let nearestPoint = null;
-            let minDistance = Infinity;
-            
-            weatherHeatmapData.forEach(point => {
-                const dx = point.lon - lon;
-                const dy = point.lat - lat;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestPoint = point;
-                }
-            });
-            
-            if (nearestPoint) {
-                temperatureHoverInfo.textContent = `Local: ${nearestPoint.temperature}°C`;
-            }
+            console.log('Hovering over hexagon:', info.object.temperature);
         } else {
-            temperatureHoverInfo.textContent = 'Hover over map for local temp';
+            // Reset to default text
+            if (weatherEnabled && weatherHeatmapData.length > 0) {
+                temperatureHoverInfo.textContent = 'Hover over map for local temp';
+            }
         }
     }
 

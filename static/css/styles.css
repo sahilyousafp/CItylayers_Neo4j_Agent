@@ -1162,10 +1162,24 @@ input:checked + .slider:before {
   right: 10px;
   background-color: rgba(255, 255, 255, 0.9);
   border-radius: 12px;
-  padding: 8px;
+  padding: 10px 14px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   z-index: 1000;
+  min-width: 200px;
   border: 1px solid rgba(1, 71, 81, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.data-sources-header {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(1, 71, 81, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-align: center;
 }
 
 .data-sources-list {
@@ -1173,6 +1187,7 @@ input:checked + .slider:before {
   flex-direction: row;
   gap: 8px;
   align-items: center;
+  justify-content: center;
 }
 
 .data-source-btn {
