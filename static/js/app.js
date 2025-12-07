@@ -712,14 +712,15 @@
         const layers = [];
         const zoom = map.getZoom();
         
-        // Define color scale based on actual data range (using 100 scale for legend)
+        // Define color scale based on actual rendered heatmap colors (using 100 scale for legend)
+        // These match the colorRange used in the HeatmapLayer below
         const colorStops = [
-            { grade: 10, color: [26, 35, 126, 200], label: "Very Low" },
-            { grade: 30, color: [65, 105, 225, 200], label: "Low" },
-            { grade: 50, color: [0, 191, 255, 200], label: "Medium" },
-            { grade: 70, color: [255, 255, 0, 200], label: "Good" },
-            { grade: 85, color: [255, 140, 0, 200], label: "Very Good" },
-            { grade: 100, color: [220, 20, 60, 200], label: "Excellent" }
+            { grade: 10, color: [0, 50, 150, 217], label: "Very Low" },      // Deep Navy Blue
+            { grade: 30, color: [30, 110, 200, 217], label: "Low" },         // Deep Blue
+            { grade: 50, color: [90, 170, 230, 217], label: "Medium" },      // Light Blue
+            { grade: 70, color: [120, 200, 240, 217], label: "Good" },       // Sky Blue
+            { grade: 85, color: [150, 220, 245, 217], label: "Very Good" },  // Pale Blue
+            { grade: 100, color: [180, 230, 250, 217], label: "Excellent" }  // Very Pale Blue
         ];
         
         // Build dynamic legend based on actual grade range
