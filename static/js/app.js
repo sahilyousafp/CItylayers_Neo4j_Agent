@@ -492,6 +492,18 @@
         // Add weather heatmap layer if weather is enabled
         if (weatherEnabled && weatherHeatmapData.length > 0) {
             layers.push(createWeatherHeatmapLayer());
+            
+            // Show weather legend
+            const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
+            updateOverlay("Weather Temperature", [
+                { color: "rgb(0, 50, 255)", label: "< 0°C (Freezing)" },
+                { color: "rgb(100, 200, 255)", label: "0-10°C (Cold)" },
+                { color: "rgb(150, 230, 200)", label: "10-15°C (Cool)" },
+                { color: "rgb(200, 255, 150)", label: "15-20°C (Mild)" },
+                { color: "rgb(255, 255, 100)", label: "20-25°C (Warm)" },
+                { color: "rgb(255, 180, 50)", label: "25-30°C (Hot)" },
+                { color: "rgb(255, 50, 50)", label: "> 30°C (Very Hot)" }
+            ]);
         }
         
         // Filter data by active category
@@ -803,6 +815,8 @@
             temperature: item.temperatures.reduce((a, b) => a + b, 0) / item.temperatures.length
         }));
         
+        console.log('Weather hexagons created:', hexData.length);
+        
         return new deck.H3HexagonLayer({
             id: 'weather-hexagons',
             data: hexData,
@@ -814,18 +828,18 @@
             getFillColor: d => {
                 const temp = d.temperature;
                 // Blue (cold) to Red (hot) gradient
-                if (temp < 0) return [0, 50, 255, 200];          // Deep Blue (freezing)
-                if (temp < 5) return [50, 150, 255, 200];        // Blue (very cold)
-                if (temp < 10) return [100, 200, 255, 200];      // Light Blue (cold)
-                if (temp < 15) return [150, 230, 200, 200];      // Cyan (cool)
-                if (temp < 20) return [200, 255, 150, 200];      // Light Green (mild)
-                if (temp < 25) return [255, 255, 100, 200];      // Yellow (warm)
-                if (temp < 30) return [255, 180, 50, 200];       // Orange (hot)
-                return [255, 50, 50, 200];                       // Red (very hot)
+                if (temp < 0) return [0, 50, 255, 220];          // Deep Blue (freezing)
+                if (temp < 5) return [50, 150, 255, 220];        // Blue (very cold)
+                if (temp < 10) return [100, 200, 255, 220];      // Light Blue (cold)
+                if (temp < 15) return [150, 230, 200, 220];      // Cyan (cool)
+                if (temp < 20) return [200, 255, 150, 220];      // Light Green (mild)
+                if (temp < 25) return [255, 255, 100, 220];      // Yellow (warm)
+                if (temp < 30) return [255, 180, 50, 220];       // Orange (hot)
+                return [255, 50, 50, 220];                       // Red (very hot)
             },
             getElevation: 0,
             elevationScale: 0,
-            opacity: 0.7,
+            opacity: 0.8,
             onHover: info => handleWeatherHover(info)
         });
     }
