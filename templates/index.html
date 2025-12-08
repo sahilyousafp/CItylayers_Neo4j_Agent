@@ -171,41 +171,66 @@
 
     <!-- Weather Details Slide-in Panel -->
     <div id="weatherDetailsPanel" class="weather-details-panel">
-        <div class="weather-details-header">
-            <h3 id="weatherDetailsTitle">Weather Data</h3>
-            <button id="closeWeatherDetails" class="close-weather-btn">×</button>
-        </div>
         <div class="weather-details-content">
-            <div class="weather-section">
-                <h4>Current Temperature</h4>
-                <div id="currentTemp" class="weather-value large">--°C</div>
+            <button id="closeWeatherDetails" class="close-weather-btn-minimal">×</button>
+            
+            <div class="weather-main-display">
+                <div id="currentTemp" class="weather-temp-large">--°C</div>
+                <div id="weatherDescription" class="weather-description">Loading...</div>
+                <div id="weatherLocation" class="weather-location-name">--</div>
+            </div>
+            
+            <div class="weather-grid">
+                <div class="weather-metric">
+                    <div class="metric-icon">💨</div>
+                    <div class="metric-label">Wind</div>
+                    <div id="windSpeed" class="metric-value">-- km/h</div>
+                </div>
+                
+                <div class="weather-metric">
+                    <div class="metric-icon">💧</div>
+                    <div class="metric-label">Humidity</div>
+                    <div id="humidity" class="metric-value">-- %</div>
+                </div>
+                
+                <div class="weather-metric">
+                    <div class="metric-icon">🌧️</div>
+                    <div class="metric-label">Precipitation</div>
+                    <div id="precipitation" class="metric-value">-- mm</div>
+                </div>
+                
+                <div class="weather-metric">
+                    <div class="metric-icon">🌡️</div>
+                    <div class="metric-label">Feels Like</div>
+                    <div id="feelsLike" class="metric-value">--°C</div>
+                </div>
+                
+                <div class="weather-metric">
+                    <div class="metric-icon">👁️</div>
+                    <div class="metric-label">Visibility</div>
+                    <div id="visibility" class="metric-value">-- km</div>
+                </div>
+                
+                <div class="weather-metric">
+                    <div class="metric-icon">🧭</div>
+                    <div class="metric-label">Pressure</div>
+                    <div id="pressure" class="metric-value">-- hPa</div>
+                </div>
             </div>
             
             <div class="weather-section">
-                <h4>Yearly Temperature Graph</h4>
+                <h4>7-Day Forecast</h4>
                 <canvas id="temperatureChart" width="400" height="200"></canvas>
             </div>
             
             <div class="weather-section">
-                <h4>Wind Speed</h4>
-                <div id="windSpeed" class="weather-value">-- km/h</div>
+                <h4>Hourly Forecast</h4>
+                <div id="hourlyForecast" class="hourly-forecast-container"></div>
             </div>
             
-            <div class="weather-section">
-                <h4>Precipitation</h4>
-                <div id="precipitation" class="weather-value">-- mm</div>
-            </div>
-            
-            <div class="weather-section">
-                <h4>Humidity</h4>
-                <div id="humidity" class="weather-value">-- %</div>
-            </div>
-            
-            <div class="weather-section">
-                <button id="openMeteoLink" class="open-meteo-btn">
-                    View on Open-Meteo →
-                </button>
-            </div>
+            <button id="accuWeatherLink" class="accuweather-btn">
+                View on AccuWeather →
+            </button>
         </div>
     </div>
 

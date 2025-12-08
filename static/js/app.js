@@ -52,7 +52,6 @@
     const temperatureHoverInfo = temperaturePanel?.querySelector(".temperature-hover-info");
     const weatherDetailsPanel = document.getElementById("weatherDetailsPanel");
     const closeWeatherDetailsBtn = document.getElementById("closeWeatherDetails");
-    const weatherDetailsTitle = document.getElementById("weatherDetailsTitle");
 
     // ========================================================================
     // STATE VARIABLES
@@ -430,7 +429,7 @@
     map.on('mouseout', () => {
         if (temperatureHoverInfo && weatherEnabled && weatherHeatmapData.length > 0) {
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
-            temperatureHoverInfo.textContent = `${avgTemp}°C`;
+            temperatureHoverInfo.textContent = `Avg: ${avgTemp}°C`;
         }
     });
 
@@ -446,9 +445,10 @@
         
         selectedLocation = location;
         
-        // Update panel title - always use "Weather Data"
-        if (weatherDetailsTitle) {
-            weatherDetailsTitle.textContent = 'Weather Data';
+        // Update location name display
+        const locationNameEl = document.getElementById('weatherLocation');
+        if (locationNameEl) {
+            locationNameEl.textContent = location.name || 'Selected Location';
         }
         
         // Fetch detailed weather data for this location
@@ -480,11 +480,12 @@
         });
     }
     
-    // Open-Meteo link button handler
+    // AccuWeather link button handler
     document.addEventListener('click', (e) => {
-        if (e.target && e.target.id === 'openMeteoLink') {
+        if (e.target && e.target.id === 'accuWeatherLink') {
             if (selectedLocation) {
-                const url = `https://open-meteo.com/en/docs#latitude=${selectedLocation.lat}&longitude=${selectedLocation.lon}`;
+                // AccuWeather location search URL with coordinates
+                const url = `https://www.accuweather.com/en/search-locations?query=${selectedLocation.lat},${selectedLocation.lon}`;
                 window.open(url, '_blank');
             }
         }
@@ -521,7 +522,7 @@
             
             // Fetch detailed weather data from Open-Meteo API
             const response = await fetch(
-                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,apparent_temperature,surface_pressure,visibility,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
             );
             
             if (!response.ok) throw new Error('Weather API request failed');
@@ -531,14 +532,26 @@
             // Update current weather
             if (data.current) {
                 document.getElementById('currentTemp').textContent = `${data.current.temperature_2m.toFixed(1)}°C`;
-                document.getElementById('windSpeed').textContent = `${data.current.wind_speed_10m.toFixed(1)} km/h`;
-                document.getElementById('precipitation').textContent = `${data.current.precipitation.toFixed(1)} mm`;
-                document.getElementById('humidity').textContent = `${data.current.relative_humidity_2m}%`;
+                document.getElementById('windSpeed').textContent = `${data.current.wind_speed_10m.toFixed(1)}`;
+                document.getElementById('precipitation').textContent = `${data.current.precipitation.toFixed(1)}`;
+                document.getElementById('humidity').textContent = `${data.current.relative_humidity_2m}`;
+                document.getElementById('feelsLike').textContent = `${data.current.apparent_temperature.toFixed(1)}°C`;
+                document.getElementById('visibility').textContent = `${(data.current.visibility / 1000).toFixed(1)}`;
+                document.getElementById('pressure').textContent = `${data.current.surface_pressure.toFixed(0)}`;
+                
+                // Update weather description
+                const weatherDesc = getWeatherDescription(data.current.weather_code);
+                document.getElementById('weatherDescription').textContent = weatherDesc;
             }
             
-            // Create yearly temperature chart
+            // Create 7-day temperature chart
             if (data.daily) {
                 createTemperatureChart(data.daily);
+            }
+            
+            // Create hourly forecast
+            if (data.hourly) {
+                createHourlyForecast(data.hourly);
             }
             
         } catch (error) {
@@ -615,6 +628,81 @@
             const x = (width / (maxTemps.length - 1)) * i;
             ctx.fillText(`Day ${i + 1}`, x, height - 2);
         });
+    }
+    
+    // Get weather description from WMO code
+    function getWeatherDescription(code) {
+        const weatherCodes = {
+            0: 'Clear sky',
+            1: 'Mainly clear',
+            2: 'Partly cloudy',
+            3: 'Overcast',
+            45: 'Foggy',
+            48: 'Depositing rime fog',
+            51: 'Light drizzle',
+            53: 'Moderate drizzle',
+            55: 'Dense drizzle',
+            61: 'Slight rain',
+            63: 'Moderate rain',
+            65: 'Heavy rain',
+            71: 'Slight snow',
+            73: 'Moderate snow',
+            75: 'Heavy snow',
+            77: 'Snow grains',
+            80: 'Slight rain showers',
+            81: 'Moderate rain showers',
+            82: 'Violent rain showers',
+            85: 'Slight snow showers',
+            86: 'Heavy snow showers',
+            95: 'Thunderstorm',
+            96: 'Thunderstorm with slight hail',
+            99: 'Thunderstorm with heavy hail'
+        };
+        return weatherCodes[code] || 'Unknown';
+    }
+    
+    // Create hourly forecast display
+    function createHourlyForecast(hourlyData) {
+        const container = document.getElementById('hourlyForecast');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        // Show next 12 hours
+        const now = new Date();
+        const currentHour = now.getHours();
+        
+        for (let i = 0; i < 12; i++) {
+            const hourDiv = document.createElement('div');
+            hourDiv.className = 'hourly-item';
+            
+            const hour = (currentHour + i) % 24;
+            const temp = hourlyData.temperature_2m[i];
+            const weatherCode = hourlyData.weather_code[i];
+            
+            hourDiv.innerHTML = `
+                <div class="hourly-time">${hour.toString().padStart(2, '0')}:00</div>
+                <div class="hourly-temp">${temp.toFixed(0)}°C</div>
+                <div class="hourly-icon">${getWeatherIcon(weatherCode)}</div>
+            `;
+            
+            container.appendChild(hourDiv);
+        }
+    }
+    
+    // Get weather icon from WMO code
+    function getWeatherIcon(code) {
+        if (code === 0 || code === 1) return '☀️';
+        if (code === 2) return '⛅';
+        if (code === 3) return '☁️';
+        if (code >= 45 && code <= 48) return '🌫️';
+        if (code >= 51 && code <= 55) return '🌦️';
+        if (code >= 61 && code <= 65) return '🌧️';
+        if (code >= 71 && code <= 77) return '❄️';
+        if (code >= 80 && code <= 82) return '🌧️';
+        if (code >= 85 && code <= 86) return '🌨️';
+        if (code >= 95 && code <= 99) return '⛈️';
+        return '🌤️';
     }
 
     // Helper to add 3D buildings
@@ -1755,7 +1843,7 @@
             
             // temperatureHoverInfo = large hover temperature (starts as avg)
             if (temperatureHoverInfo) {
-                temperatureHoverInfo.textContent = `${avgTemp}°C`;
+                temperatureHoverInfo.textContent = `Avg: ${avgTemp}°C`;
             }
             
             // temperatureValue = small average label
