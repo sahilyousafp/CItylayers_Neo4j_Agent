@@ -6,5 +6,7 @@ from .neo4j_agent import Neo4jAgent
 from .web_scraper_agent import WebScraperAgent
 from .osm_agent import OSMAgent
 from .openmeteo_agent import OpenMeteoAgent
+from .movement_agent import MovementAgent
+from .vegetation_agent import VegetationAgent
 
-__all__ = ["Neo4jAgent", "WebScraperAgent", "OSMAgent", "OpenMeteoAgent"]
+__all__ = ["Neo4jAgent", "WebScraperAgent", "OSMAgent", "OpenMeteoAgent", "MovementAgent", "VegetationAgent"]

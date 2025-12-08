@@ -1438,6 +1438,90 @@ input:checked + .slider:before {
 }
 
 /* Temperature Panel */
+/* Tabbed Data Panel */
+.data-panel {
+  position: absolute;
+  top: 230px;
+  right: 10px;
+  background-color: var(--primary-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  min-width: 200px;
+  border: 1px solid var(--tertiary-color);
+  overflow: hidden;
+}
+
+.data-panel.hidden {
+  display: none;
+}
+
+/* Location Info Header */
+
+
+#locationInfoName {
+  color: var(--secondary-color);
+  font-size: 14px;
+}
+
+#locationInfoCategory {
+  color: var(--secondary-color);
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+#locationInfoGrade {
+  color: var(--secondary-color);
+  font-size: 13px;
+}
+
+.data-panel-tabs {
+  display: flex;
+  background-color: var(--tertiary-color);
+  border-bottom: 1px solid rgba(1, 71, 81, 0.1);
+}
+
+.data-tab {
+  flex: 1;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+  border-bottom: 2px solid transparent;
+}
+
+.data-tab:hover {
+  background-color: rgba(1, 71, 81, 0.05);
+}
+
+.data-tab.active {
+  background-color: var(--primary-color);
+  color: var(--secondary-color);
+  border-bottom-color: var(--secondary-color);
+}
+
+.data-panel-content {
+  padding: 12px;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.temperature-info-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 .temperature-panel {
   position: absolute;
   top: 230px;
@@ -1496,7 +1580,205 @@ input:checked + .slider:before {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   text-align: center;
+  margin-top: 4px;
 }
+
+/* Trees Tab Styles */
+.trees-info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+}
+
+.trees-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--secondary-color);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: center;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.trees-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: rgba(1, 71, 81, 0.05);
+  border-radius: 8px;
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--secondary-color);
+  opacity: 0.7;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--secondary-color);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Species Filter Section */
+.species-filter-section {
+  margin-top: 8px;
+  border-top: 1px solid rgba(1, 71, 81, 0.1);
+  padding-top: 12px;
+}
+
+.filter-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--secondary-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  opacity: 0.6;
+}
+
+.species-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.species-filter-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: rgba(34, 139, 34, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(34, 139, 34, 0.2);
+}
+
+.species-filter-item:hover {
+  background-color: rgba(34, 139, 34, 0.25);
+}
+
+.species-filter-item.active {
+  opacity: 1;
+}
+
+.species-filter-item:not(.active) {
+  opacity: 0.4;
+  background-color: rgba(128, 128, 128, 0.1);
+  border-color: rgba(128, 128, 128, 0.2);
+}
+
+.species-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--secondary-color);
+  flex: 1;
+}
+
+.species-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--secondary-color);
+  opacity: 0.6;
+  margin-left: 8px;
+}
+
+/* Transport Legend Panel */
+.transport-legend-panel {
+  position: absolute;
+  top: 230px;
+  right: 10px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 200px;
+  border: 1px solid rgba(1, 71, 81, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: opacity 0.3s ease;
+}
+
+.transport-legend-panel.hidden {
+  display: none;
+}
+
+.transport-legend-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.transport-legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.transport-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: rgba(1, 71, 81, 0.05);
+  opacity: 0.5;
+}
+
+.transport-legend-item:hover {
+  background-color: rgba(1, 71, 81, 0.1);
+}
+
+.transport-legend-item.active {
+  opacity: 1;
+  background-color: rgba(1, 71, 81, 0.1);
+}
+
+.transport-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.transport-legend-item[data-type="train"] .transport-icon {
+  color: #007bff;
+}
+
+.transport-legend-item[data-type="tram"] .transport-icon {
+  color: #ffc107;
+}
+
+.transport-legend-item[data-type="bus"] .transport-icon {
+  color: #28a745;
+}
+
+.transport-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--secondary-color);
+}
+
 
 /* Old category filter panel styles (keep for backward compatibility but hide) */
 .category-filter-panel {
@@ -2114,216 +2396,27 @@ input:checked + .slider:before {
 }
 
 /* Weather Details Slide-in Panel */
-.weather-details-panel {
-    position: fixed;
-    top: 0;
-    right: -450px;
-    width: 450px;
-    height: 100vh;
-    background: var(--primary-color);
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
-    transition: right 0.3s ease-in-out;
-    z-index: 3000;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+
+
+/* Popup styling with rounded corners and proper z-index */
+.mapboxgl-popup {
+  z-index: 3000 !important;
 }
 
-.weather-details-panel.open {
-    right: 0;
+.mapboxgl-popup-content {
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  padding: 10px !important;
+  font-family: 'Space Grotesk', sans-serif !important;
 }
 
-.close-weather-btn-minimal {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    background: none;
-    border: none;
-    color: var(--secondary-color);
-    font-size: 32px;
-    cursor: pointer;
-    padding: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.2s, opacity 0.2s;
-    opacity: 0.5;
-    z-index: 10;
+.mapboxgl-popup-close-button {
+  font-size: 20px !important;
+  padding: 0 8px !important;
+  color: var(--secondary-color) !important;
 }
 
-.close-weather-btn-minimal:hover {
-    transform: scale(1.2);
-    opacity: 1;
-}
-
-.weather-details-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 30px 24px;
-    background: var(--primary-color);
-}
-
-.weather-main-display {
-    text-align: center;
-    padding: 40px 20px 30px;
-    border-bottom: 1px solid var(--tertiary-color);
-    margin-bottom: 24px;
-}
-
-.weather-temp-large {
-    font-size: 64px;
-    font-weight: 700;
-    color: var(--secondary-color);
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    margin-bottom: 12px;
-}
-
-.weather-description {
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--secondary-color);
-    margin-bottom: 8px;
-    opacity: 0.8;
-}
-
-.weather-location-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--secondary-color);
-    opacity: 0.5;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.weather-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
-}
-
-.weather-metric {
-    background: var(--tertiary-color);
-    border-radius: 12px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.weather-metric:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.metric-icon {
-    font-size: 32px;
-    margin-bottom: 8px;
-}
-
-.metric-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--secondary-color);
-    opacity: 0.6;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
-}
-
-.metric-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--secondary-color);
-    font-variant-numeric: tabular-nums;
-}
-
-.weather-section {
-    margin-bottom: 24px;
-    padding: 20px;
-    background: var(--tertiary-color);
-    border-radius: 12px;
-}
-
-.weather-section h4 {
-    margin: 0 0 16px 0;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--secondary-color);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    opacity: 0.7;
-}
-
-#temperatureChart {
-    width: 100%;
-    height: 200px;
-    background: var(--primary-color);
-    border-radius: 8px;
-}
-
-.hourly-forecast-container {
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 8px;
-}
-
-.hourly-item {
-    min-width: 80px;
-    background: var(--primary-color);
-    border-radius: 8px;
-    padding: 12px;
-    text-align: center;
-    flex-shrink: 0;
-}
-
-.hourly-time {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--secondary-color);
-    opacity: 0.6;
-    margin-bottom: 6px;
-}
-
-.hourly-temp {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--secondary-color);
-    margin-bottom: 4px;
-}
-
-.hourly-icon {
-    font-size: 24px;
-}
-
-.accuweather-btn {
-    width: 100%;
-    padding: 14px 20px;
-    background: var(--secondary-color);
-    color: var(--primary-color);
-    border: none;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-align: center;
-    font-family: 'Space Grotesk', sans-serif;
-    margin-top: 12px;
-}
-
-.accuweather-btn:hover {
-    background: #016171;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(1, 71, 81, 0.3);
-}
-
-.accuweather-btn:active {
-    transform: translateY(0);
+.mapboxgl-popup-close-button:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 4px !important;
 }

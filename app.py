@@ -7,7 +7,7 @@ import pandas as pd
 import re
 
 # Import agents
-from agents import Neo4jAgent, WebScraperAgent, OSMAgent, OpenMeteoAgent
+from agents import Neo4jAgent, WebScraperAgent, OSMAgent, OpenMeteoAgent, MovementAgent, VegetationAgent
 
 
 from config import Config
@@ -35,6 +35,8 @@ def get_session_store() -> Dict[str, Any]:
             "scraper_agent": WebScraperAgent(),
             "osm_agent": OSMAgent(),
             "openmeteo_agent": OpenMeteoAgent(),
+            "movement_agent": MovementAgent(),
+            "vegetation_agent": VegetationAgent(),
         }
     return SESSIONS[sid]
 
@@ -144,7 +146,7 @@ def chat_endpoint():
         
         # CityLayers (Neo4j) is the primary source
         if "citylayers" in data_sources:
-            print(f"DEBUG: Processing query with Neo4j agent: '{question}'")
+
             result = neo4j_agent.process(
                 query=question, 
                 chat_history=chat_history, 
@@ -172,7 +174,7 @@ def chat_endpoint():
         
         # Store context for map visualization
         store["last_context_records"] = context_records
-        print(f"DEBUG: Stored {len(context_records)} context_records for map visualization.")
+
         
         # Get visualization recommendation
         viz_recommendation = _get_viz_recommendation(store, scraper_agent, question, context_records)
@@ -198,8 +200,8 @@ def chat_endpoint():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/debug-data", methods=["GET"])
-def debug_data():
+@app.route("/map-data", methods=["GET"])
+def map_data():
     store = get_session_store()
     records = store.get("last_context_records", [])
     # Return first 5 records for inspection
@@ -310,7 +312,7 @@ def map_data():
                 if comments:
                     feature["comments"] = comments
             except Exception as e:
-                print(f"DEBUG: Error extracting comments: {e}")
+
         
         if grade_col:
             try:
@@ -321,7 +323,7 @@ def map_data():
                 if grade:
                     feature["grade"] = grade
             except Exception as e:
-                print(f"DEBUG: Error extracting grade: {e}")
+
         
         # Add remaining columns
         priority_cols = {lat_col, lon_col, loc_col, pid_col, cat_col, subcat_col, comments_col, grade_col}
@@ -353,7 +355,7 @@ def map_data():
     
     features = unique_features
     
-    print(f"DEBUG: Prepared {len(features)} features for map")
+
     
     # Fetch city boundaries
     boundaries = _fetch_city_boundaries(osm_agent, city_names, features)
@@ -414,7 +416,7 @@ def _extract_from_nested(row, col_name):
         
         return str(val).strip() if val is not None else None
     except Exception as e:
-        print(f"DEBUG: Error extracting from nested {col_name}: {e}")
+
         return None
         return None
 
@@ -504,7 +506,7 @@ def _extract_all_categories(row, cat_col):
         
         return [], []
     except Exception as e:
-        print(f"DEBUG: Error extracting categories from {cat_col}: {e}")
+
         return [], []
 
 
@@ -736,7 +738,7 @@ def _enrich_with_online_info(answer: str, context_records: List[Dict], scraper_a
         return answer
         
     except Exception as e:
-        print(f"WARNING: Failed to enrich with online info: {e}")
+
         return answer
 
 
@@ -848,7 +850,7 @@ def weather_data():
         center_lat = (north + south) / 2
         center_lon = (east + west) / 2
         
-        print(f"Fetching weather for center point: ({center_lat}, {center_lon})")
+
         
         # Fetch current weather from Open-Meteo
         try:
@@ -859,14 +861,13 @@ def weather_data():
             )
             
             if not result.get("ok") or not result.get("current"):
-                print(f"No weather data available: {result.get('error', 'Unknown error')}")
-                print("Using mock weather data as fallback")
+
                 avg_temp = 15.0  # Default temperature
             else:
                 # Get current temperature
                 current = result["current"]
                 avg_temp = current.get("temperature", 15.0)
-                print(f"Current temperature: {avg_temp}°C")
+
             
             # Generate dense interpolated grid for raster-like appearance
             # Use 20x20 grid for smooth raster coverage
@@ -893,7 +894,7 @@ def weather_data():
                         "value": temp
                     })
             
-            print(f"Generated {len(weather_points)} weather points for raster display")
+
             
             return jsonify({
                 "ok": True,
@@ -904,12 +905,12 @@ def weather_data():
             })
             
         except Exception as point_error:
-            print(f"Error fetching weather: {str(point_error)}")
+
             import traceback
             traceback.print_exc()
             
             # Return mock data as fallback
-            print("Exception occurred, using mock weather data")
+
             avg_temp = 15.0
             lat_step = (north - south) / 19
             lon_step = (east - west) / 19
@@ -941,10 +942,82 @@ def weather_data():
         
     except Exception as e:
         import traceback
-        print(f"ERROR in weather_data endpoint: {str(e)}")
-        print(traceback.format_exc())
+
         return jsonify({"ok": False, "error": f"Server error: {str(e)}"}), 500
 
+
+@app.route("/transport-data", methods=["POST"])
+def transport_data():
+    """
+    Fetch public transport stations within map bounds
+    """
+    try:
+        data = request.get_json()
+        bounds = data.get("bounds", {})
+        
+        if not bounds:
+            return jsonify({"ok": False, "error": "Missing bounds"}), 400
+        
+        # Get center point
+        north = bounds.get("north")
+        south = bounds.get("south")
+        east = bounds.get("east")
+        west = bounds.get("west")
+        
+        center_lat = (north + south) / 2
+        center_lon = (east + west) / 2
+        
+        # Calculate search radius based on bounds
+        import math
+        lat_diff = north - south
+        lon_diff = east - west
+        radius = int(max(lat_diff, lon_diff) * 111000 / 2)  # Convert to meters
+        radius = min(radius, 5000)  # Max 5km radius
+        
+        store = get_session_store()
+        movement_agent = store["movement_agent"]
+        
+        # Get nearby stations
+        stations = movement_agent.get_nearby_stations(center_lat, center_lon, radius)
+        
+        return jsonify({
+            "ok": True,
+            "stations": stations,
+            "count": len(stations),
+            "center": {"lat": center_lat, "lon": center_lon},
+            "radius": radius
+        })
+        
+    except Exception as e:
+        import traceback
+
+        return jsonify({"ok": False, "error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/vegetation-data", methods=["POST"])
+def vegetation_data():
+    """
+    Fetch vegetation/tree data within map bounds from Vienna Open Data
+    """
+    try:
+        data = request.get_json()
+        bounds = data.get("bounds", {})
+        
+        if not bounds:
+            return jsonify({"ok": False, "error": "Missing bounds"}), 400
+        
+        store = get_session_store()
+        vegetation_agent = store["vegetation_agent"]
+        
+        # Get vegetation data
+        result = vegetation_agent.get_vegetation_in_bounds(bounds)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        import traceback
+
+        return jsonify({"ok": False, "error": f"Server error: {str(e)}"}), 500
 
 
 # @app.route("/clear-database", methods=["POST"])
@@ -1142,16 +1215,16 @@ def _inject_geolocation_into_tables(html: str, context_records: List[Dict[str, A
                     injected_count += 1
         
         if injected_count > 0:
-            print(f"INFO: Injected geolocation data into {injected_count} table rows")
+
         
         return str(soup)
     except Exception as e:
-        print(f"Warning: Failed to inject geolocation data into tables: {e}")
+
         return html
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
 
 
 

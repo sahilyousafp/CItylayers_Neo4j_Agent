@@ -142,17 +142,120 @@
                             <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
                         </svg>
                     </button>
+                    <button class="data-source-btn" id="source-transport" data-source="transport" title="Transport - Public transport stations and routes">
+                        <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                            <line x1="8" y1="6" x2="8" y2="2"></line>
+                            <line x1="16" y1="6" x2="16" y2="2"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                            <circle cx="8" cy="16" r="1"></circle>
+                            <circle cx="16" cy="16" r="1"></circle>
+                        </svg>
+                    </button>
+                </div>
+                <div class="data-sources-list" style="margin-top: 5px;">
+                    <button class="data-source-btn" id="source-vegetation" data-source="vegetation" title="Vegetation - Trees and green spaces">
+                        <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm-1-9V7h2v4h4v2h-4v4h-2v-4H7v-2h4z"/>
+                            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <div id="locationCount" class="location-count-panel">
                 <div class="location-count-header">Locations on Map</div>
                 <div class="location-count-value">0</div>
             </div>
-            <div id="temperaturePanel" class="temperature-panel hidden">
-                <div class="temperature-header">Temperature</div>
-                <div class="temperature-hover-info">--°C</div>
-                <div class="temperature-value">Avg: --°C</div>
+            <!-- Tabbed Data Panel -->
+            <div id="dataPanel" class="data-panel hidden">
+                <div class="data-panel-tabs">
+                    <div class="data-tab active" data-tab="transport" title="Transport">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                            <path d="M3 10h18"></path>
+                            <path d="M8 14h.01"></path>
+                            <path d="M16 14h.01"></path>
+                            <path d="M3 18l2 2"></path>
+                            <path d="M21 18l-2 2"></path>
+                        </svg>
+                    </div>
+                    <div class="data-tab" data-tab="weather" title="Weather">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                        </svg>
+                    </div>
+                    <div class="data-tab" data-tab="trees" title="Trees & Vegetation">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2L8 8h8l-4-6z"/>
+                            <path d="M9 8L6 13h12l-3-5"/>
+                            <path d="M10 13v9"/>
+                            <path d="M14 13v9"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="data-panel-content">
+                    <!-- Transport Tab Content -->
+                    <div id="transportTab" class="tab-content active">
+                        <div class="transport-legend-items">
+                            <div class="transport-legend-item active" data-type="train" title="Train stations">
+                                <svg class="transport-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2l2-2h4l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-4-4-8-4zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm3.5-7H6V6h5v4zm2 0V6h5v4h-5zm3.5 7c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                                </svg>
+                                <span class="transport-label">Train</span>
+                            </div>
+                            <div class="transport-legend-item active" data-type="tram" title="Tram stops">
+                                <svg class="transport-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2l2-2h4l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-4-4-8-4zm5.5 3H14V3.5h3.5V5zM10 3.5V5H6.5V3.5H10zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm1-5.5v-6h7v6h-7zm8 5.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                                </svg>
+                                <span class="transport-label">Tram</span>
+                            </div>
+                            <div class="transport-legend-item active" data-type="bus" title="Bus stops">
+                                <svg class="transport-icon" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z"/>
+                                </svg>
+                                <span class="transport-label">Bus</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Weather Tab Content -->
+                    <div id="weatherTab" class="tab-content">
+                        <div class="temperature-info-content">
+                            <div class="temperature-header">Temperature</div>
+                            <div class="temperature-hover-info">--°C</div>
+                            <div class="temperature-value">Avg: --°C</div>
+                            <a href="#" id="accuweatherLink" class="accuweather-link" target="_blank" title="View on AccuWeather">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                    <!-- Trees Tab Content -->
+                    <div id="treesTab" class="tab-content">
+                        <div class="trees-info-content">
+                            <div class="trees-header">Trees & Vegetation</div>
+                            <div class="trees-stats">
+                                <div class="stat-item">
+                                    <div class="stat-label">Total Trees</div>
+                                    <div class="stat-value" id="totalTreesCount">--</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Shaded Area</div>
+                                    <div class="stat-value" id="shadedAreaCount">--</div>
+                                </div>
+                            </div>
+                            <div class="species-filter-section">
+                                <div class="filter-header">Filter by Species</div>
+                                <div id="speciesFilterList" class="species-filter-list">
+                                    <!-- Species filters will be dynamically added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
+            <!-- Location Info Header -->
             <div id="mapControls" class="map-controls-panel">
     <label class="theme-switch" title="Toggle Dark/Light Mode">
         <input type="checkbox" id="themeToggleCheckbox" onchange="toggleTheme()">
@@ -170,69 +273,6 @@
     </div>
 
     <!-- Weather Details Slide-in Panel -->
-    <div id="weatherDetailsPanel" class="weather-details-panel">
-        <div class="weather-details-content">
-            <button id="closeWeatherDetails" class="close-weather-btn-minimal">×</button>
-            
-            <div class="weather-main-display">
-                <div id="currentTemp" class="weather-temp-large">--°C</div>
-                <div id="weatherDescription" class="weather-description">Loading...</div>
-                <div id="weatherLocation" class="weather-location-name">--</div>
-            </div>
-            
-            <div class="weather-grid">
-                <div class="weather-metric">
-                    <div class="metric-icon">💨</div>
-                    <div class="metric-label">Wind</div>
-                    <div id="windSpeed" class="metric-value">-- km/h</div>
-                </div>
-                
-                <div class="weather-metric">
-                    <div class="metric-icon">💧</div>
-                    <div class="metric-label">Humidity</div>
-                    <div id="humidity" class="metric-value">-- %</div>
-                </div>
-                
-                <div class="weather-metric">
-                    <div class="metric-icon">🌧️</div>
-                    <div class="metric-label">Precipitation</div>
-                    <div id="precipitation" class="metric-value">-- mm</div>
-                </div>
-                
-                <div class="weather-metric">
-                    <div class="metric-icon">🌡️</div>
-                    <div class="metric-label">Feels Like</div>
-                    <div id="feelsLike" class="metric-value">--°C</div>
-                </div>
-                
-                <div class="weather-metric">
-                    <div class="metric-icon">👁️</div>
-                    <div class="metric-label">Visibility</div>
-                    <div id="visibility" class="metric-value">-- km</div>
-                </div>
-                
-                <div class="weather-metric">
-                    <div class="metric-icon">🧭</div>
-                    <div class="metric-label">Pressure</div>
-                    <div id="pressure" class="metric-value">-- hPa</div>
-                </div>
-            </div>
-            
-            <div class="weather-section">
-                <h4>7-Day Forecast</h4>
-                <canvas id="temperatureChart" width="400" height="200"></canvas>
-            </div>
-            
-            <div class="weather-section">
-                <h4>Hourly Forecast</h4>
-                <div id="hourlyForecast" class="hourly-forecast-container"></div>
-            </div>
-            
-            <button id="accuWeatherLink" class="accuweather-btn">
-                View on AccuWeather →
-            </button>
-        </div>
-    </div>
 
     <script src="/static/js/app.js"></script>
 </body>

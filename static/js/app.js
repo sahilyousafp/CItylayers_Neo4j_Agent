@@ -47,11 +47,10 @@
     const searchResults = document.getElementById("searchResults");
     const clearSearchBtn = document.getElementById("clearSearchBtn");
     const categorySelect = document.getElementById("categorySelect");
-    const temperaturePanel = document.getElementById("temperaturePanel");
-    const temperatureValue = temperaturePanel?.querySelector(".temperature-value");
-    const temperatureHoverInfo = temperaturePanel?.querySelector(".temperature-hover-info");
-    const weatherDetailsPanel = document.getElementById("weatherDetailsPanel");
-    const closeWeatherDetailsBtn = document.getElementById("closeWeatherDetails");
+    const dataPanel = document.getElementById("dataPanel");
+    const temperaturePanel = dataPanel?.querySelector("#weatherTab");
+    const temperatureValue = dataPanel?.querySelector(".temperature-value");
+    const temperatureHoverInfo = dataPanel?.querySelector(".temperature-hover-info");
 
     // ========================================================================
     // STATE VARIABLES
@@ -60,11 +59,17 @@
     let currentVizMode = "mapbox"; // Current visualization mode
     let cityLayersEnabled = true; // Data source toggle
     let weatherEnabled = false; // Weather heatmap toggle
+    let transportEnabled = false; // Transport data toggle
+    let vegetationEnabled = false; // Vegetation data toggle
+    let transportFilters = { train: true, tram: true, bus: true }; // Transport type filters
+    let activeSpeciesFilters = new Set(); // Active species filters (empty = show all)
     let isResizing = false; // Panel resize state
     let isTiltActive = false; // 3D tilt state
     let searchMarker = null; // Active search marker
     let drawnRegionBounds = null; // Polygon selection bounds
     let weatherHeatmapData = []; // Weather data points
+    let transportStations = []; // Transport station data
+    let vegetationData = []; // Vegetation/tree data
 
     // ========================================================================
     // CATEGORY CONFIGURATION
@@ -185,7 +190,7 @@
     const LIGHT_STYLE = 'mapbox://styles/mapbox/light-v11';
     const DARK_STYLE = 'mapbox://styles/mapbox/dark-v11';
 
-    let currentTheme = 'light'; // 'light' or 'dark'
+    let currentTheme = 'light'; // Default to light mode
 
     // Initialize Mapbox Map with Light Style
     const map = new mapboxgl.Map({
@@ -198,6 +203,12 @@
         projection: 'mercator', // Force 2D plan view
         antialias: true
     });
+    
+    // Apply customization on initial load
+    map.on('load', () => {
+
+        customizeMapLayers();
+    });
 
     // Theme Toggle Logic
     function toggleTheme() {
@@ -205,7 +216,7 @@
         currentTheme = checkbox.checked ? 'dark' : 'light';
         const newStyle = currentTheme === 'light' ? LIGHT_STYLE : DARK_STYLE;
         
-        console.log(`Switching to ${currentTheme} theme`);
+
         
         // Save current state
         const center = map.getCenter();
@@ -226,7 +237,7 @@
         
         // Restore state after style loads
         map.once('style.load', () => {
-            console.log(`${currentTheme} theme loaded`);
+
             
             // Restore view
             map.jumpTo({
@@ -238,6 +249,11 @@
             
             // Reapply custom layers (3D buildings, etc.)
             customizeMapLayers();
+            
+            // Re-apply building visibility state after style change
+            if (map.getLayer('add-3d-buildings')) {
+                map.setLayoutProperty('add-3d-buildings', 'visibility', buildingsVisible ? 'visible' : 'none');
+            }
             
             // Restore deck.gl visualization
             updateDeckLayers();
@@ -256,7 +272,38 @@
 
     // Customize Map Layers (3D Buildings & POI Filtering)
     function customizeMapLayers() {
-        // 1. Add 3D Buildings
+        // Wait for style to be fully loaded
+        if (!map.isStyleLoaded()) {
+            map.once('idle', customizeMapLayers);
+            return;
+        }
+        
+        // 1. Color water and greenspace for light mode
+        if (currentTheme === 'light') {
+            // Color water blue
+            if (map.getLayer('water')) {
+                map.setPaintProperty('water', 'fill-color', '#a8d5ff');
+            }
+            if (map.getLayer('waterway')) {
+                map.setPaintProperty('waterway', 'line-color', '#a8d5ff');
+            }
+            
+            // Color parks/greenspace green
+            if (map.getLayer('landuse')) {
+                map.setPaintProperty('landuse', 'fill-color', [
+                    'match',
+                    ['get', 'class'],
+                    'park', '#c8e6c9',
+                    'pitch', '#a5d6a7',
+                    'grass', '#c8e6c9',
+                    'wood', '#81c784',
+                    'forest', '#66bb6a',
+                    'transparent'
+                ]);
+            }
+        }
+        
+        // 2. Add 3D Buildings
         if (!map.getLayer('add-3d-buildings')) {
             const layers = map.getStyle().layers;
             const labelLayerId = layers.find(
@@ -270,28 +317,35 @@
                     'source-layer': 'building',
                     'filter': ['==', 'extrude', 'true'],
                     'type': 'fill-extrusion',
-                    'minzoom': 13,
+                    'minzoom': 15,
                     'paint': {
-                        'fill-extrusion-color': currentTheme === 'light' ? '#aaa' : '#555',
+                        'fill-extrusion-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'height'],
+                            0, currentTheme === 'light' ? '#e0e0e0' : '#444',
+                            50, currentTheme === 'light' ? '#c0c0c0' : '#555',
+                            100, currentTheme === 'light' ? '#a0a0a0' : '#666'
+                        ],
                         'fill-extrusion-height': [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            13,
+                            15,
                             0,
-                            13.05,
+                            15.05,
                             ['get', 'height']
                         ],
                         'fill-extrusion-base': [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            13,
+                            15,
                             0,
-                            13.05,
+                            15.05,
                             ['get', 'min_height']
                         ],
-                        'fill-extrusion-opacity': 0.6
+                        'fill-extrusion-opacity': 0.8
                     }
                 },
                 labelLayerId
@@ -301,49 +355,23 @@
             map.setLayoutProperty('add-3d-buildings', 'visibility', buildingsVisible ? 'visible' : 'none');
         } else {
             // Update existing layer color based on theme
-            map.setPaintProperty('add-3d-buildings', 'fill-extrusion-color', currentTheme === 'light' ? '#aaa' : '#555');
+            map.setPaintProperty('add-3d-buildings', 'fill-extrusion-color', [
+                'interpolate',
+                ['linear'],
+                ['get', 'height'],
+                0, currentTheme === 'light' ? '#e0e0e0' : '#444',
+                50, currentTheme === 'light' ? '#c0c0c0' : '#555',
+                100, currentTheme === 'light' ? '#a0a0a0' : '#666'
+            ]);
             
             // Re-apply visibility state
             map.setLayoutProperty('add-3d-buildings', 'visibility', buildingsVisible ? 'visible' : 'none');
         }
 
-        // 2. Customize water and greenery colors
-        if (currentTheme === 'light') {
-            // Muted water color
-            if (map.getLayer('water')) {
-                map.setPaintProperty('water', 'fill-color', '#b8d4e3');
-            }
-            // Muted park/greenery colors
-            if (map.getLayer('landuse')) {
-                map.setPaintProperty('landuse', 'fill-color', [
-                    'match',
-                    ['get', 'class'],
-                    'park', '#c8e6c9',
-                    'pitch', '#d4e8d4',
-                    'grass', '#d4e8d4',
-                    'wood', '#b8d4b8',
-                    'scrub', '#c8dcc8',
-                    '#ddd' // default
-                ]);
-            }
-        } else {
-            // Explicit dark mode colors (shades of grey)
-            if (map.getLayer('water')) {
-                map.setPaintProperty('water', 'fill-color', '#2c2c2c'); // Dark grey for water
-            }
-            if (map.getLayer('landuse')) {
-                map.setPaintProperty('landuse', 'fill-color', [
-                    'match',
-                    ['get', 'class'],
-                    'park', '#3a3a3a', // Darker grey for parks
-                    'pitch', '#3a3a3a',
-                    'grass', '#3a3a3a',
-                    'wood', '#2a2a2a',
-                    'scrub', '#303030',
-                    '#222222' // default dark grey
-                ]);
-            }
-        }
+        // 2. Keep default water and greenery from base styles
+        // Light mode: natural water (blue) and parks (green) from streets-v12
+        // Dark mode: muted colors from dark-v11
+        // No customization needed - let Mapbox styles handle it naturally
 
         // 3. Filter POIs to hide commercial infrastructures
         if (map.getLayer('poi-label')) {
@@ -377,7 +405,7 @@
         const checkbox = document.getElementById('buildingsToggleCheckbox');
         buildingsVisible = checkbox.checked;
         
-        console.log(`Buildings ${buildingsVisible ? 'enabled' : 'disabled'}`);
+
         
         if (map.getLayer('add-3d-buildings')) {
             map.setLayoutProperty(
@@ -440,269 +468,17 @@
     let selectedLocation = null;
     
     // Open weather details panel
-    function openWeatherDetails(location) {
-        if (!weatherDetailsPanel) return;
-        
-        selectedLocation = location;
-        
-        // Update location name display
-        const locationNameEl = document.getElementById('weatherLocation');
-        if (locationNameEl) {
-            locationNameEl.textContent = location.name || 'Selected Location';
-        }
-        
-        // Fetch detailed weather data for this location
-        fetchLocationWeatherDetails(location.lat, location.lon);
-        
-        // Open panel
-        weatherDetailsPanel.classList.add('open');
-    }
-    
-    // Close weather details panel
-    function closeWeatherDetails() {
-        if (!weatherDetailsPanel) return;
-        weatherDetailsPanel.classList.remove('open');
-        selectedLocation = null;
-    }
-    
     // Temperature panel click handler
     if (temperaturePanel) {
         temperaturePanel.addEventListener('click', () => {
             if (weatherEnabled && weatherHeatmapData.length > 0) {
-                // Get map center as location
+                // Get map center coordinates
                 const center = map.getCenter();
-                openWeatherDetails({
-                    name: 'Weather Data',
-                    lat: center.lat,
-                    lon: center.lng
-                });
-            }
-        });
-    }
-    
-    // AccuWeather link button handler
-    document.addEventListener('click', (e) => {
-        if (e.target && e.target.id === 'accuWeatherLink') {
-            if (selectedLocation) {
-                // AccuWeather location search URL with coordinates
-                const url = `https://www.accuweather.com/en/search-locations?query=${selectedLocation.lat},${selectedLocation.lon}`;
+                // Open AccuWeather with coordinates
+                const url = `https://www.accuweather.com/en/search-locations?query=${center.lat},${center.lng}`;
                 window.open(url, '_blank');
             }
-        }
-    });
-    
-    // Close button handler
-    if (closeWeatherDetailsBtn) {
-        closeWeatherDetailsBtn.addEventListener('click', closeWeatherDetails);
-    }
-    
-    // Fetch detailed weather for a location
-    async function fetchLocationWeatherDetails(lat, lon) {
-        try {
-            // Update current temp immediately with nearest point
-            if (weatherHeatmapData.length > 0) {
-                let nearestPoint = null;
-                let minDistance = Infinity;
-                
-                weatherHeatmapData.forEach(point => {
-                    const dx = point.lon - lon;
-                    const dy = point.lat - lat;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        nearestPoint = point;
-                    }
-                });
-                
-                if (nearestPoint) {
-                    document.getElementById('currentTemp').textContent = `${nearestPoint.temperature.toFixed(1)}°C`;
-                }
-            }
-            
-            // Fetch detailed weather data from Open-Meteo API
-            const response = await fetch(
-                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,apparent_temperature,surface_pressure,visibility,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
-            );
-            
-            if (!response.ok) throw new Error('Weather API request failed');
-            
-            const data = await response.json();
-            
-            // Update current weather
-            if (data.current) {
-                document.getElementById('currentTemp').textContent = `${data.current.temperature_2m.toFixed(1)}°C`;
-                document.getElementById('windSpeed').textContent = `${data.current.wind_speed_10m.toFixed(1)}`;
-                document.getElementById('precipitation').textContent = `${data.current.precipitation.toFixed(1)}`;
-                document.getElementById('humidity').textContent = `${data.current.relative_humidity_2m}`;
-                document.getElementById('feelsLike').textContent = `${data.current.apparent_temperature.toFixed(1)}°C`;
-                document.getElementById('visibility').textContent = `${(data.current.visibility / 1000).toFixed(1)}`;
-                document.getElementById('pressure').textContent = `${data.current.surface_pressure.toFixed(0)}`;
-                
-                // Update weather description
-                const weatherDesc = getWeatherDescription(data.current.weather_code);
-                document.getElementById('weatherDescription').textContent = weatherDesc;
-            }
-            
-            // Create 7-day temperature chart
-            if (data.daily) {
-                createTemperatureChart(data.daily);
-            }
-            
-            // Create hourly forecast
-            if (data.hourly) {
-                createHourlyForecast(data.hourly);
-            }
-            
-        } catch (error) {
-            console.error('Error fetching weather details:', error);
-            document.getElementById('currentTemp').textContent = 'Error loading data';
-        }
-    }
-    
-    // Create simple temperature chart (using canvas API)
-    function createTemperatureChart(dailyData) {
-        const canvas = document.getElementById('temperatureChart');
-        if (!canvas) return;
-        
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        
-        // Clear canvas
-        ctx.fillStyle = '#f8f9fa';
-        ctx.fillRect(0, 0, width, height);
-        
-        // Get temperature data (first 7 days)
-        const maxTemps = dailyData.temperature_2m_max.slice(0, 7);
-        const minTemps = dailyData.temperature_2m_min.slice(0, 7);
-        
-        if (maxTemps.length === 0) return;
-        
-        // Find min/max for scaling
-        const allTemps = [...maxTemps, ...minTemps];
-        const minTemp = Math.min(...allTemps);
-        const maxTemp = Math.max(...allTemps);
-        const tempRange = maxTemp - minTemp;
-        
-        // Draw grid lines
-        ctx.strokeStyle = '#ddd';
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= 4; i++) {
-            const y = (height / 4) * i;
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(width, y);
-            ctx.stroke();
-        }
-        
-        // Draw max temperature line
-        ctx.strokeStyle = '#ff6b6b';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        maxTemps.forEach((temp, i) => {
-            const x = (width / (maxTemps.length - 1)) * i;
-            const y = height - ((temp - minTemp) / tempRange) * (height - 20) - 10;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
         });
-        ctx.stroke();
-        
-        // Draw min temperature line
-        ctx.strokeStyle = '#4dabf7';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        minTemps.forEach((temp, i) => {
-            const x = (width / (minTemps.length - 1)) * i;
-            const y = height - ((temp - minTemp) / tempRange) * (height - 20) - 10;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-        
-        // Draw labels
-        ctx.fillStyle = '#666';
-        ctx.font = '12px Space Grotesk';
-        ctx.textAlign = 'center';
-        maxTemps.forEach((temp, i) => {
-            const x = (width / (maxTemps.length - 1)) * i;
-            ctx.fillText(`Day ${i + 1}`, x, height - 2);
-        });
-    }
-    
-    // Get weather description from WMO code
-    function getWeatherDescription(code) {
-        const weatherCodes = {
-            0: 'Clear sky',
-            1: 'Mainly clear',
-            2: 'Partly cloudy',
-            3: 'Overcast',
-            45: 'Foggy',
-            48: 'Depositing rime fog',
-            51: 'Light drizzle',
-            53: 'Moderate drizzle',
-            55: 'Dense drizzle',
-            61: 'Slight rain',
-            63: 'Moderate rain',
-            65: 'Heavy rain',
-            71: 'Slight snow',
-            73: 'Moderate snow',
-            75: 'Heavy snow',
-            77: 'Snow grains',
-            80: 'Slight rain showers',
-            81: 'Moderate rain showers',
-            82: 'Violent rain showers',
-            85: 'Slight snow showers',
-            86: 'Heavy snow showers',
-            95: 'Thunderstorm',
-            96: 'Thunderstorm with slight hail',
-            99: 'Thunderstorm with heavy hail'
-        };
-        return weatherCodes[code] || 'Unknown';
-    }
-    
-    // Create hourly forecast display
-    function createHourlyForecast(hourlyData) {
-        const container = document.getElementById('hourlyForecast');
-        if (!container) return;
-        
-        container.innerHTML = '';
-        
-        // Show next 12 hours
-        const now = new Date();
-        const currentHour = now.getHours();
-        
-        for (let i = 0; i < 12; i++) {
-            const hourDiv = document.createElement('div');
-            hourDiv.className = 'hourly-item';
-            
-            const hour = (currentHour + i) % 24;
-            const temp = hourlyData.temperature_2m[i];
-            const weatherCode = hourlyData.weather_code[i];
-            
-            hourDiv.innerHTML = `
-                <div class="hourly-time">${hour.toString().padStart(2, '0')}:00</div>
-                <div class="hourly-temp">${temp.toFixed(0)}°C</div>
-                <div class="hourly-icon">${getWeatherIcon(weatherCode)}</div>
-            `;
-            
-            container.appendChild(hourDiv);
-        }
-    }
-    
-    // Get weather icon from WMO code
-    function getWeatherIcon(code) {
-        if (code === 0 || code === 1) return '☀️';
-        if (code === 2) return '⛅';
-        if (code === 3) return '☁️';
-        if (code >= 45 && code <= 48) return '🌫️';
-        if (code >= 51 && code <= 55) return '🌦️';
-        if (code >= 61 && code <= 65) return '🌧️';
-        if (code >= 71 && code <= 77) return '❄️';
-        if (code >= 80 && code <= 82) return '🌧️';
-        if (code >= 85 && code <= 86) return '🌨️';
-        if (code >= 95 && code <= 99) return '⛈️';
-        return '🌤️';
     }
 
     // Helper to add 3D buildings
@@ -721,28 +497,37 @@
                 'source-layer': 'building',
                 'filter': ['==', 'extrude', 'true'],
                 'type': 'fill-extrusion',
-                'minzoom': 13,
+                'minzoom': 12,
                 'paint': {
-                    'fill-extrusion-color': '#aaa',
+                    'fill-extrusion-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'height'],
+                        0, '#d4d4d8',
+                        20, '#a1a1aa',
+                        40, '#71717a',
+                        60, '#52525b'
+                    ],
                     'fill-extrusion-height': [
                         'interpolate',
                         ['linear'],
                         ['zoom'],
-                        13,
+                        12,
                         0,
-                        13.05,
+                        12.5,
                         ['get', 'height']
                     ],
                     'fill-extrusion-base': [
                         'interpolate',
                         ['linear'],
                         ['zoom'],
-                        13,
+                        12,
                         0,
-                        13.05,
+                        12.5,
                         ['get', 'min_height']
                     ],
-                    'fill-extrusion-opacity': 0.6
+                    'fill-extrusion-opacity': 0.8,
+                    'fill-extrusion-vertical-gradient': true
                 }
             },
             labelLayerId
@@ -783,6 +568,11 @@
         // Update heatmap and choropleth visualizations on zoom change to update labels
         if ((currentVizMode === 'heatmap' || currentVizMode === 'chloropleth') && mapState.features.length > 0) {
             updateDeckLayers();
+        }
+        
+        // Update vegetation data when map moves if vegetation is enabled
+        if (vegetationEnabled) {
+            fetchVegetationData();
         }
     });
 
@@ -889,6 +679,59 @@
                 updateOverlay("Map View", []);
             }
             renderMapboxMarkers();
+        }
+        
+        // Add transport stations layer if enabled
+        if (transportEnabled && transportStations.length > 0) {
+            // Filter stations based on active filters
+            const filteredStations = transportStations.filter(station => 
+                transportFilters[station.type] === true
+            );
+            
+            if (filteredStations.length > 0) {
+                const transportLayer = new deck.IconLayer({
+                    id: 'transport-stations',
+                    data: filteredStations,
+                    getPosition: d => [d.lon, d.lat],
+                    getIcon: d => ({
+                        url: getTransportIconDataUrl(d.type),
+                        width: 128,
+                        height: 128,
+                        anchorY: 128
+                    }),
+                    getSize: 32,
+                    sizeScale: 1,
+                    pickable: true,
+                    onClick: info => {
+                        if (info.object) {
+                            const station = info.object;
+
+                            
+                            // Create styled popup
+                            const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
+                                <strong>${station.name}</strong><br>
+                                <small>${station.type}</small><br>
+                                ${station.operator ? `Operator: <b>${station.operator}</b>` : ''}
+                            </div>`;
+                            
+                            new mapboxgl.Popup({ 
+                                closeButton: true,
+                                closeOnClick: true,
+                                className: 'custom-popup'
+                            })
+                                .setLngLat(info.coordinate)
+                                .setHTML(html)
+                                .addTo(map);
+                        }
+                    }
+                });
+                layers.push(transportLayer);
+            }
+        }
+        
+        // Add vegetation layer if enabled - using scatter plot
+        if (vegetationEnabled && vegetationData.length > 0) {
+            layers.push(createVegetationScatterLayer());
         }
 
         deckOverlay.setProps({ layers });
@@ -997,7 +840,7 @@
         const maxGrade100 = maxGrade * 10;
         const avgGrade100 = avgGrade * 10;
         
-        console.log(`Heatmap: Using ${filteredData.length} places with grades from ${minGrade.toFixed(1)} to ${maxGrade.toFixed(1)} (avg: ${avgGrade.toFixed(1)})`);
+
 
         const layers = [];
         const zoom = map.getZoom();
@@ -1091,7 +934,7 @@
      * @returns {deck.HeatmapLayer} Weather raster visualization layer
      */
     function createWeatherHeatmapLayer() {
-        console.log('Creating weather raster with', weatherHeatmapData.length, 'points');
+
         
         return new deck.HeatmapLayer({
             id: 'weather-heatmap',
@@ -1110,7 +953,7 @@
                 [255, 128, 0],         // Orange (hot)
                 [255, 0, 0]            // Red (very hot)
             ],
-            opacity: 1.0,
+            opacity: 0.6,
             pickable: true,
             onHover: info => handleWeatherHover(info)
         });
@@ -1164,44 +1007,87 @@
             return [new deck.ScatterplotLayer({ id: 'empty-graph', data: [] })];
         }
 
-        // Build graph connections: connect each location to its 3 nearest neighbors
+        // Check if current category is Movement
+        const isMovementCategory = currentCategory === 'Movement' || currentCategory === 3;
+
+        
+        // Build graph connections
         const connections = [];
         
-        highGradeData.forEach((source, idx) => {
-            // Calculate distances to all other points
-            const distances = highGradeData
-                .map((target, targetIdx) => {
-                    if (idx === targetIdx) return null;
-                    
-                    const dx = target.lon - source.lon;
-                    const dy = target.lat - source.lat;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    return { target, targetIdx, distance };
-                })
-                .filter(d => d !== null)
-                .sort((a, b) => a.distance - b.distance)
-                .slice(0, 3); // Connect to 3 nearest neighbors
+        if (isMovementCategory && transportEnabled && transportStations.length > 0) {
+            // Movement mode: connect locations to nearest transport stations of each type
+            const filteredStations = transportStations.filter(s => transportFilters[s.type]);
+
             
-            // Create connections
-            distances.forEach(({ target }) => {
-                // Get primary category for color
-                const sourceCat = getCategoryName(source);
-                const targetCat = getCategoryName(target);
-                const category = sourceCat; // Use source category for color
+            if (filteredStations.length > 0) {
+                highGradeData.forEach(location => {
+                    // Find absolute nearest transport station across all filtered types
+                    let nearest = null;
+                    let minDistance = Infinity;
+                    
+                    filteredStations.forEach(station => {
+                        const dx = station.lon - location.lon;
+                        const dy = station.lat - location.lat;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < minDistance && distance < 0.05) { // Only within ~5km
+                            minDistance = distance;
+                            nearest = { station, distance };
+                        }
+                    });
+                    
+                    if (nearest) {
+                        connections.push({
+                            source: [location.lon, location.lat],
+                            target: [nearest.station.lon, nearest.station.lat],
+                            category: 'Movement',
+                            transportType: nearest.station.type,
+                            distance: nearest.distance,
+                            sourceData: location,
+                            targetData: nearest.station
+                        });
+
+                    }
+                });
+            }
+        } else {
+            // Default mode: connect locations to each other
+            highGradeData.forEach((source, idx) => {
+                // Calculate distances to all other points
+                const distances = highGradeData
+                    .map((target, targetIdx) => {
+                        if (idx === targetIdx) return null;
+                        
+                        const dx = target.lon - source.lon;
+                        const dy = target.lat - source.lat;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        return { target, targetIdx, distance };
+                    })
+                    .filter(d => d !== null)
+                    .sort((a, b) => a.distance - b.distance)
+                    .slice(0, 3); // Connect to 3 nearest neighbors
                 
-                const avgGrade = ((parseFloat(source.grade) || 7) + (parseFloat(target.grade) || 7)) / 2;
-                
-                connections.push({
-                    source: [source.lon, source.lat],
-                    target: [target.lon, target.lat],
-                    category: category,
-                    avgGrade: avgGrade,
-                    sourceData: source,
-                    targetData: target
+                // Create connections
+                distances.forEach(({ target }) => {
+                    // Get primary category for color
+                    const sourceCat = getCategoryName(source);
+                    const targetCat = getCategoryName(target);
+                    const category = sourceCat; // Use source category for color
+                    
+                    const avgGrade = ((parseFloat(source.grade) || 7) + (parseFloat(target.grade) || 7)) / 2;
+                    
+                    connections.push({
+                        source: [source.lon, source.lat],
+                        target: [target.lon, target.lat],
+                        category: category,
+                        avgGrade: avgGrade,
+                        sourceData: source,
+                        targetData: target
+                    });
                 });
             });
-        });
+        }
 
         // Helper function to get category name
         function getCategoryName(point) {
@@ -1212,40 +1098,14 @@
             return categories[0] || 'Uncategorized';
         }
 
-        // Create line layer for connections colored by category
-        layers.push(
-            new deck.LineLayer({
-                id: 'graph-connections',
-                data: connections,
-                getSourcePosition: d => d.source,
-                getTargetPosition: d => d.target,
-                getColor: d => {
-                    const color = CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Uncategorized'];
-                    return [...color, 180]; // Add alpha
-                },
-                getWidth: d => d.avgGrade / 2, // Width based on average grade
-                widthMinPixels: 2,
-                widthMaxPixels: 8,
-                pickable: !isDrawing,
-                onClick: info => {
-                    if (info.object) {
-                        const d = info.object;
-                        new mapboxgl.Popup()
-                            .setLngLat(info.coordinate)
-                            .setHTML(`
-                                <div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
-                                    <strong>Connection</strong><br>
-                                    <b>Category:</b> ${d.category}<br>
-                                    <b>Avg Grade:</b> ${d.avgGrade.toFixed(1)}
-                                </div>
-                            `)
-                            .addTo(map);
-                    }
-                }
-            })
-        );
+        // Define transport type colors
+        const TRANSPORT_COLORS = {
+            train: [255, 59, 48],    // Red
+            tram: [52, 199, 89],     // Green
+            bus: [0, 122, 255]       // Blue
+        };
 
-        // Create nodes layer with larger points colored by category
+        // Create nodes layer first (rendered on bottom, but clickable on top)
         layers.push(
             new deck.ScatterplotLayer({
                 id: 'graph-nodes',
@@ -1266,6 +1126,58 @@
                 getLineColor: [255, 255, 255],
                 pickable: !isDrawing,
                 onClick: info => showPopup(info)
+            })
+        );
+
+        // Create line layer for connections (rendered on top)
+        layers.push(
+            new deck.LineLayer({
+                id: 'graph-connections',
+                data: connections,
+                getSourcePosition: d => d.source,
+                getTargetPosition: d => d.target,
+                getColor: d => {
+                    if (isMovementCategory && d.transportType) {
+                        // Color by transport type in Movement mode
+                        const color = TRANSPORT_COLORS[d.transportType] || [100, 100, 100];
+                        return [...color, 200];
+                    } else {
+                        // Color by category in normal mode
+                        const color = CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Uncategorized'];
+                        return [...color, 180];
+                    }
+                },
+                getWidth: d => {
+                    if (isMovementCategory) {
+                        return 3; // Fixed width for transport connections
+                    } else {
+                        return d.avgGrade / 2; // Width based on average grade
+                    }
+                },
+                widthMinPixels: 2,
+                widthMaxPixels: 8,
+                pickable: !isDrawing,
+                onClick: info => {
+                    if (info.object) {
+                        const d = info.object;
+                        let html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
+                            <strong>Connection</strong><br>`;
+                        
+                        if (d.transportType) {
+                            html += `<b>Transport:</b> ${d.transportType}<br>
+                                     <b>Distance:</b> ${(d.distance * 111).toFixed(2)} km`;
+                        } else {
+                            html += `<b>Category:</b> ${d.category}<br>
+                                     <b>Avg Grade:</b> ${d.avgGrade.toFixed(1)}`;
+                        }
+                        html += `</div>`;
+                        
+                        new mapboxgl.Popup()
+                            .setLngLat(info.coordinate)
+                            .setHTML(html)
+                            .addTo(map);
+                    }
+                }
             })
         );
 
@@ -1478,12 +1390,6 @@
             });
         });
 
-        console.log('Rendering mapbox markers:', {
-            totalFeatures: mapState.features.length,
-            activeCategory: currentCategory,
-            filteredFeatures: featuresToRender.length
-        });
-
         featuresToRender.forEach((f, index) => {
             if (!f.lat || !f.lon) {
                 console.warn(`Feature ${index} missing coordinates:`, f);
@@ -1524,7 +1430,7 @@
             mapboxMarkers.push(marker);
         });
 
-        console.log(`Created ${mapboxMarkers.length} markers on map`);
+
     }
 
     // ---------------------------------------------------------
@@ -1568,34 +1474,39 @@
         }
 
         // Switch Map Style - respect current theme
-        if (mode === 'mapbox') {
-            if (prevMode !== 'mapbox') {
-                // Return to theme-appropriate style for mapbox mode
-                const themeStyle = currentTheme === 'light' ? LIGHT_STYLE : DARK_STYLE;
-                map.setStyle(themeStyle);
-            }
-        } else {
-            // For visualization modes, use current theme's dark style for better layer visibility
-            // Only switch if we weren't already in a visualization mode (optimization)
-            if (prevMode === 'mapbox') {
-                map.setStyle(DARK_STYLE);
-            }
+        const needsStyleChange = (mode === 'mapbox' && prevMode !== 'mapbox') || 
+                                 (mode !== 'mapbox' && prevMode === 'mapbox');
+        
+        if (needsStyleChange) {
+            const themeStyle = currentTheme === 'light' ? LIGHT_STYLE : DARK_STYLE;
+            map.setStyle(themeStyle);
+            
+            // Restore layers after style loads
+            map.once('style.load', () => {
+                customizeMapLayers();
+                updateDeckLayers();
+                if (mode === 'mapbox') {
+                    renderMapboxMarkers();
+                }
+            });
         }
 
         // If switching away from mapbox, clear markers
         if (mode !== 'mapbox') {
             mapboxMarkers.forEach(m => m.remove());
             mapboxMarkers = [];
-        } else {
-            // If switching TO mapbox, render markers
+        } else if (!needsStyleChange) {
+            // If switching TO mapbox without style change, render markers
             renderMapboxMarkers();
         }
 
-        // Note: updateDeckLayers will be called by style.load if style changes.
-        // If style doesn't change (e.g. scatter -> heatmap), we call it here.
-        if ((mode === 'mapbox' && prevMode === 'mapbox') || (mode !== 'mapbox' && prevMode !== 'mapbox')) {
+        // Update deck layers if style doesn't change
+        if (!needsStyleChange) {
             updateDeckLayers();
         }
+        
+        // Update location info header
+        updateLocationInfoForVisualization();
     }
 
     // ==============================
@@ -1727,7 +1638,7 @@
                         }, 100);
                         
                         // Show success feedback
-                        console.log('Filter applied successfully');
+
                     } else {
                         console.error('Filter error:', data.error);
                         appendMessage("assistant error", data.error || "Failed to apply filter");
@@ -1832,27 +1743,21 @@
      * Update the temperature panel with current weather data
      */
     function updateTemperaturePanel() {
-        if (!temperaturePanel) return;
+        if (!temperatureValue || !temperatureHoverInfo) return;
         
         if (weatherEnabled && weatherHeatmapData.length > 0) {
-            // Show panel
-            temperaturePanel.classList.remove('hidden');
-            
             // Calculate average temperature
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             
             // temperatureHoverInfo = large hover temperature (starts as avg)
-            if (temperatureHoverInfo) {
-                temperatureHoverInfo.textContent = `Avg: ${avgTemp}°C`;
-            }
+            temperatureHoverInfo.textContent = `${avgTemp}°C`;
             
             // temperatureValue = small average label
-            if (temperatureValue) {
-                temperatureValue.textContent = `Avg: ${avgTemp}°C`;
-            }
+            temperatureValue.textContent = `Avg: ${avgTemp}°C`;
         } else {
-            // Hide panel when weather is disabled
-            temperaturePanel.classList.add('hidden');
+            // Reset when weather is disabled
+            temperatureHoverInfo.textContent = '--°C';
+            temperatureValue.textContent = 'Avg: --°C';
         }
     }
 
@@ -1887,7 +1792,7 @@
                 
                 // Detailed log of the first feature
                 if (mapState.features.length > 0) {
-                    console.log('First feature:', mapState.features[0]);
+
                 }
 
                 // Update category filter
@@ -2049,7 +1954,7 @@
         "Exploring the map...",
         "Searching for locations...",
         "Analyzing location data...",
-        "Processing your query...",
+        "Processing your question...",
         "Finding the best results..."
     ];
 
@@ -2573,7 +2478,23 @@
             weatherEnabled = !weatherEnabled;
             sourceWeather.classList.toggle('active', weatherEnabled);
             
-            console.log('Weather toggle clicked, enabled:', weatherEnabled);
+            // Show/hide data panel and switch to weather tab
+            if (dataPanel) {
+                if (weatherEnabled || transportEnabled) {
+                    dataPanel.classList.remove('hidden');
+                    if (weatherEnabled) {
+                        // Switch to weather tab
+                        document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+                        document.querySelector('.data-tab[data-tab="weather"]').classList.add('active');
+                        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                        document.getElementById('weatherTab').classList.add('active');
+                    }
+                } else {
+                    dataPanel.classList.add('hidden');
+                }
+            }
+            
+
             
             if (weatherEnabled) {
                 fetchWeatherData();
@@ -2581,6 +2502,87 @@
                 weatherHeatmapData = [];
                 updateDeckLayers();
                 updateTemperaturePanel();
+            }
+        });
+    }
+    
+    // Transport data source toggle
+    const sourceTransport = document.getElementById('source-transport');
+    if (sourceTransport) {
+        sourceTransport.addEventListener('click', () => {
+            transportEnabled = !transportEnabled;
+            sourceTransport.classList.toggle('active', transportEnabled);
+            
+            // Show/hide data panel and switch to transport tab
+            if (dataPanel) {
+                if (transportEnabled || weatherEnabled) {
+                    dataPanel.classList.remove('hidden');
+                    if (transportEnabled) {
+                        // Switch to transport tab
+                        document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+                        document.querySelector('.data-tab[data-tab="transport"]').classList.add('active');
+                        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                        document.getElementById('transportTab').classList.add('active');
+                    }
+                } else {
+                    dataPanel.classList.add('hidden');
+                }
+            }
+            
+
+            
+            if (transportEnabled) {
+                fetchTransportData();
+            } else {
+                transportStations = [];
+                updateDeckLayers();
+            }
+        });
+    }
+    
+    // Transport legend filter toggles
+    const transportLegendItems = document.querySelectorAll('.transport-legend-item');
+    transportLegendItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const type = item.dataset.type;
+            if (type && type in transportFilters) {
+                transportFilters[type] = !transportFilters[type];
+                item.classList.toggle('active', transportFilters[type]);
+                updateDeckLayers();
+            }
+        });
+    });
+    
+    // Vegetation data source toggle
+    const sourceVegetation = document.getElementById('source-vegetation');
+    if (sourceVegetation) {
+        sourceVegetation.addEventListener('click', () => {
+            vegetationEnabled = !vegetationEnabled;
+            sourceVegetation.classList.toggle('active', vegetationEnabled);
+            
+
+            
+            if (vegetationEnabled) {
+                fetchVegetationData();
+                // Show data panel and switch to trees tab
+                const dataPanel = document.getElementById('dataPanel');
+                if (dataPanel) {
+                    dataPanel.classList.remove('hidden');
+                    document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelector('.data-tab[data-tab="trees"]').classList.add('active');
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    document.getElementById('treesTab').classList.add('active');
+                }
+            } else {
+                vegetationData = [];
+                // Remove Mapbox tree layer
+                if (map.getLayer('3d-trees')) {
+                    map.removeLayer('3d-trees');
+                }
+                if (map.getSource('trees-data')) {
+                    map.removeSource('trees-data');
+                }
+                updateTreesPanel();
             }
         });
     }
@@ -2598,7 +2600,7 @@
                 west: bounds.getWest()
             };
             
-            console.log('Fetching weather data for bounds:', boundsObj);
+
             
             const res = await fetch("/weather-data", {
                 method: "POST",
@@ -2606,7 +2608,7 @@
                 body: JSON.stringify({ bounds: boundsObj })
             });
             
-            console.log('Weather fetch response status:', res.status);
+
             
             // Check if response is JSON
             const contentType = res.headers.get("content-type");
@@ -2618,11 +2620,11 @@
             }
             
             const data = await res.json();
-            console.log('Weather data received:', data);
+
             
             if (data.ok && data.weather_points) {
                 weatherHeatmapData = data.weather_points;
-                console.log(`Successfully loaded ${weatherHeatmapData.length} weather points`);
+
                 
                 if (data.warnings && data.warnings.length > 0) {
                     console.warn('Weather data warnings:', data.warnings);
@@ -2643,7 +2645,318 @@
             if (sourceWeather) sourceWeather.classList.remove('active');
         }
     }
+    
+    /**
+     * Fetch public transport data for the current map bounds
+     */
+    async function fetchTransportData() {
+        try {
+            const bounds = map.getBounds();
+            const boundsObj = {
+                north: bounds.getNorth(),
+                south: bounds.getSouth(),
+                east: bounds.getEast(),
+                west: bounds.getWest()
+            };
+            
 
+            
+            const res = await fetch("/transport-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ bounds: boundsObj })
+            });
+            
+            const data = await res.json();
+
+            
+            if (data.ok && data.stations) {
+                transportStations = data.stations;
+
+                updateDeckLayers();
+                updateLocationCountDisplay();
+            } else {
+                console.error('Failed to fetch transport data:', data.error);
+                transportEnabled = false;
+                const sourceTransport = document.getElementById('source-transport');
+                if (sourceTransport) sourceTransport.classList.remove('active');
+            }
+        } catch (e) {
+            console.error('Error fetching transport data:', e);
+            transportEnabled = false;
+            const sourceTransport = document.getElementById('source-transport');
+            if (sourceTransport) sourceTransport.classList.remove('active');
+        }
+    }
+    
+    /**
+     * Create vegetation scatter plot layer
+     * Displays trees with opacity and actual foliage radius
+     */
+    function createVegetationScatterLayer() {
+        // Filter by selected species
+        const filteredData = vegetationData.filter(tree => {
+            if (activeSpeciesFilters.size === 0) return true;
+            return activeSpeciesFilters.has(tree.species || 'Unknown');
+        });
+        
+        return new deck.ScatterplotLayer({
+            id: 'vegetation-layer',
+            data: filteredData,
+            pickable: true,
+            opacity: 0.3,
+            stroked: true,
+            filled: true,
+            radiusUnits: 'meters',
+            radiusMinPixels: 2,
+            radiusMaxPixels: 100,
+            lineWidthMinPixels: 1,
+            getPosition: d => [d.lon, d.lat],
+            getRadius: d => (d.crown_diameter || 5) / 2,  // Use foliage radius
+            getFillColor: d => {
+                // Color based on species
+                const speciesColors = {
+                    'Acer': [34, 139, 34, 100],      // Forest green
+                    'Tilia': [50, 205, 50, 100],     // Lime green
+                    'Platanus': [60, 179, 113, 100], // Medium sea green
+                    'Quercus': [46, 125, 50, 100],   // Dark green
+                    'Unknown': [107, 142, 35, 100]   // Olive drab
+                };
+                const genus = d.species ? d.species.split(' ')[0] : 'Unknown';
+                return speciesColors[genus] || speciesColors['Unknown'];
+            },
+            getLineColor: [255, 255, 255, 80],
+            onClick: (info) => {
+                if (info.object) {
+                    const tree = info.object;
+                    const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
+                        <strong>${tree.species || 'Unknown Species'}</strong><br>
+                        ${tree.height ? `Height: <b>${tree.height}m</b><br>` : ''}
+                        ${tree.crown_diameter ? `Crown: <b>${tree.crown_diameter}m</b><br>` : ''}
+                        ${tree.planting_year ? `Planted: <b>${tree.planting_year}</b>` : ''}
+                    </div>`;
+                    
+                    new mapboxgl.Popup({ 
+                        closeButton: true,
+                        closeOnClick: true,
+                        className: 'custom-popup'
+                    })
+                        .setLngLat([tree.lon, tree.lat])
+                        .setHTML(html)
+                        .addTo(map);
+                }
+            }
+        });
+    }
+    
+    /**
+     * Fetch vegetation data for the current map bounds
+     */
+    async function fetchVegetationData() {
+        try {
+            const bounds = map.getBounds();
+            const boundsObj = {
+                north: bounds.getNorth(),
+                south: bounds.getSouth(),
+                east: bounds.getEast(),
+                west: bounds.getWest()
+            };
+            
+
+            
+            const res = await fetch("/vegetation-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ bounds: boundsObj })
+            });
+            
+            const data = await res.json();
+
+            
+            if (data.ok && data.trees) {
+                vegetationData = data.trees;  // No limit - show all trees
+
+                updateLocationCountDisplay();
+                updateTreesPanel(data);
+                updateDeckLayers();  // Re-render with scatter plot
+            } else {
+                console.error('Failed to fetch vegetation data:', data.error);
+                vegetationEnabled = false;
+                const sourceVegetation = document.getElementById('source-vegetation');
+                if (sourceVegetation) sourceVegetation.classList.remove('active');
+            }
+        } catch (e) {
+            console.error('Error fetching vegetation data:', e);
+            vegetationEnabled = false;
+            const sourceVegetation = document.getElementById('source-vegetation');
+            if (sourceVegetation) sourceVegetation.classList.remove('active');
+        }
+    }
+    
+    /**
+     * Generate transport icon as data URL based on type
+     * @param {string} type - Transport type (train, tram, bus)
+     * @returns {string} Data URL of the SVG icon
+     */
+    function getTransportIconDataUrl(type) {
+        let svgPath = '';
+        let color = '';
+        
+        switch (type) {
+            case 'train':
+                color = '#007bff';
+                svgPath = 'M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2l2-2h4l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-4-4-8-4zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm3.5-7H6V6h5v4zm2 0V6h5v4h-5zm3.5 7c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z';
+                break;
+            case 'tram':
+                color = '#ffc107';
+                svgPath = 'M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2l2-2h4l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-4-4-8-4zm5.5 3H14V3.5h3.5V5zM10 3.5V5H6.5V3.5H10zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm1-5.5v-6h7v6h-7zm8 5.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z';
+                break;
+            case 'bus':
+                color = '#28a745';
+                svgPath = 'M4 16c0 .88.39 1.67 1 2.22V20c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h8v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-3.5-3.58-4-8-4s-8 .5-8 4v10zm3.5 1c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm9 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm1.5-6H6V6h12v5z';
+                break;
+            default:
+                color = '#6c757d';
+                svgPath = 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z';
+        }
+        
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24">
+            <path fill="${color}" d="${svgPath}"/>
+        </svg>`;
+        
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+
+    /**
+     * Update the trees panel with vegetation data statistics
+     */
+    function updateTreesPanel(data = null) {
+        const totalTreesCount = document.getElementById('totalTreesCount');
+        const shadedAreaCount = document.getElementById('shadedAreaCount');
+        const speciesFilterList = document.getElementById('speciesFilterList');
+        
+        if (!data || !data.trees || data.trees.length === 0) {
+            if (totalTreesCount) totalTreesCount.textContent = '--';
+            if (shadedAreaCount) shadedAreaCount.textContent = '--';
+            if (speciesFilterList) speciesFilterList.innerHTML = '';
+            return;
+        }
+        
+        // Update total trees count
+        if (totalTreesCount) {
+            totalTreesCount.textContent = data.trees.length.toLocaleString();
+        }
+        
+        // Calculate shaded area (approximate based on tree canopy)
+        const totalShadedArea = data.trees.reduce((sum, tree) => {
+            const radius = (tree.crown_diameter || 5) / 2;
+            return sum + (Math.PI * radius * radius);
+        }, 0);
+        
+        if (shadedAreaCount) {
+            if (totalShadedArea >= 10000) {
+                shadedAreaCount.textContent = (totalShadedArea / 10000).toFixed(2) + ' ha';
+            } else {
+                shadedAreaCount.textContent = totalShadedArea.toLocaleString(undefined, {maximumFractionDigits: 0}) + ' m²';
+            }
+        }
+        
+        // Build species filter list
+        if (speciesFilterList) {
+            // Count trees by species
+            const speciesCounts = {};
+            data.trees.forEach(tree => {
+                const species = tree.species || 'Unknown';
+                speciesCounts[species] = (speciesCounts[species] || 0) + 1;
+            });
+            
+            // Sort by count
+            const sortedSpecies = Object.entries(speciesCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10); // Show top 10 species
+            
+            // Build HTML
+            speciesFilterList.innerHTML = sortedSpecies.map(([species, count]) => `
+                <div class="species-filter-item active" data-species="${species}" onclick="toggleSpeciesFilter('${species}')">
+                    <span class="species-name">${species}</span>
+                    <span class="species-count">${count}</span>
+                </div>
+            `).join('');
+        }
+    }
+    
+    /**
+     * Toggle species filter
+     */
+    window.toggleSpeciesFilter = function(species) {
+        const filterElement = document.querySelector(`.species-filter-item[data-species="${species}"]`);
+        if (!filterElement) return;
+        
+        if (activeSpeciesFilters.has(species)) {
+            // Remove filter (show this species)
+            activeSpeciesFilters.delete(species);
+            filterElement.classList.add('active');
+        } else {
+            // Add filter (hide this species)
+            activeSpeciesFilters.add(species);
+            filterElement.classList.remove('active');
+        }
+        
+        // Re-render layers
+        updateDeckLayers();
+    };
+    
+    /**
+     * Calculate approximate area of bounds in square meters
+     */
+    function calculateBoundsArea(bounds) {
+        const R = 6371000; // Earth's radius in meters
+        const lat1 = bounds.getSouth() * Math.PI / 180;
+        const lat2 = bounds.getNorth() * Math.PI / 180;
+        const lng1 = bounds.getWest() * Math.PI / 180;
+        const lng2 = bounds.getEast() * Math.PI / 180;
+        
+        const latDiff = lat2 - lat1;
+        const lngDiff = lng2 - lng1;
+        const avgLat = (lat1 + lat2) / 2;
+        
+        const height = R * latDiff;
+        const width = R * lngDiff * Math.cos(avgLat);
+        
+        return Math.abs(height * width);
+    }
+
+    
+    // ========================================================================
+    // LOCATION INFO HEADER
+    // ========================================================================
+    
+    /**
+     * Show location info header with details
+     * @param {string} name - Location name
+     * @param {string} category - Category name
+     * @param {number} grade - Grade value
+     */
+
+    
+    // Tab switching logic
+    const dataTabs = document.querySelectorAll('.data-tab');
+    dataTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            
+            // Update active tab
+            dataTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // Update active content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(tabName + 'Tab').classList.add('active');
+        });
+    });
+    
     // Initialize category filter with predefined categories
     initializeCategoryFilter();
 
