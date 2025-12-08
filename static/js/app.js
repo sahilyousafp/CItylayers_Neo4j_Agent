@@ -1919,6 +1919,31 @@
                         }
                     }
                 }
+                
+                // Auto-enable data sources based on backend detection
+                if (data.auto_enabled_sources && data.auto_enabled_sources.length > 0) {
+                    data.auto_enabled_sources.forEach(source => {
+                        if (source === 'weather' && !weatherEnabled) {
+                            weatherEnabled = true;
+                            if (sourceWeather) {
+                                sourceWeather.classList.add('active');
+                            }
+                            fetchWeatherData();
+                        } else if (source === 'transport' && !transportEnabled) {
+                            transportEnabled = true;
+                            if (sourceTransport) {
+                                sourceTransport.classList.add('active');
+                            }
+                            fetchTransportData();
+                        } else if (source === 'vegetation' && !vegetationEnabled) {
+                            vegetationEnabled = true;
+                            if (sourceVegetation) {
+                                sourceVegetation.classList.add('active');
+                            }
+                            fetchVegetationData();
+                        }
+                    });
+                }
 
                 await refreshMapData();
 
@@ -2697,7 +2722,7 @@
         // Filter by selected species
         const filteredData = vegetationData.filter(tree => {
             if (activeSpeciesFilters.size === 0) return true;
-            return activeSpeciesFilters.has(tree.species || 'Unknown');
+            return activeSpeciesFilters.has(tree.common_name || tree.species || 'Unknown');
         });
         
         return new deck.ScatterplotLayer({
@@ -2710,27 +2735,27 @@
             radiusUnits: 'meters',
             radiusMinPixels: 2,
             radiusMaxPixels: 100,
-            lineWidthMinPixels: 1,
+            lineWidthMinPixels: 0.5,
             getPosition: d => [d.lon, d.lat],
             getRadius: d => (d.crown_diameter || 5) / 2,  // Use foliage radius
             getFillColor: d => {
-                // Color based on species
+                // Darker, brighter greens based on species
                 const speciesColors = {
-                    'Acer': [34, 139, 34, 100],      // Forest green
-                    'Tilia': [50, 205, 50, 100],     // Lime green
-                    'Platanus': [60, 179, 113, 100], // Medium sea green
-                    'Quercus': [46, 125, 50, 100],   // Dark green
-                    'Unknown': [107, 142, 35, 100]   // Olive drab
+                    'Acer': [0, 180, 0, 120],        // Bright green
+                    'Tilia': [0, 200, 50, 120],      // Bright lime
+                    'Platanus': [0, 160, 80, 120],   // Bright sea green
+                    'Quercus': [0, 140, 0, 120],     // Deep green
+                    'Unknown': [50, 180, 50, 120]    // Balanced green
                 };
                 const genus = d.species ? d.species.split(' ')[0] : 'Unknown';
                 return speciesColors[genus] || speciesColors['Unknown'];
             },
-            getLineColor: [255, 255, 255, 80],
+            getLineColor: [255, 255, 255, 50],
             onClick: (info) => {
                 if (info.object) {
                     const tree = info.object;
                     const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
-                        <strong>${tree.species || 'Unknown Species'}</strong><br>
+                        <strong>${tree.common_name || tree.species || 'Unknown Species'}</strong><br>
                         ${tree.height ? `Height: <b>${tree.height}m</b><br>` : ''}
                         ${tree.crown_diameter ? `Crown: <b>${tree.crown_diameter}m</b><br>` : ''}
                         ${tree.planting_year ? `Planted: <b>${tree.planting_year}</b>` : ''}
@@ -2863,11 +2888,11 @@
         
         // Build species filter list
         if (speciesFilterList) {
-            // Count trees by species
+            // Count trees by common name
             const speciesCounts = {};
             data.trees.forEach(tree => {
-                const species = tree.species || 'Unknown';
-                speciesCounts[species] = (speciesCounts[species] || 0) + 1;
+                const commonName = tree.common_name || tree.species || 'Unknown';
+                speciesCounts[commonName] = (speciesCounts[commonName] || 0) + 1;
             });
             
             // Sort by count

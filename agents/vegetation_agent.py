@@ -14,6 +14,30 @@ class VegetationAgent(BaseAgent):
         # Vienna Open Data - Baumkataster (Tree Cadastre) API
         self.base_url = "https://data.wien.gv.at/daten/geo"
         self.tree_dataset_url = "https://data.wien.gv.at/daten/geo?service=WFS&request=GetFeature&version=1.1.0&typeName=ogdwien:BAUMKATOGD&srsName=EPSG:4326&outputFormat=json"
+        
+        # Common name mapping for tree species
+        self.species_common_names = {
+            'Acer platanoides': 'Norway Maple',
+            'Acer pseudoplatanus': 'Sycamore Maple',
+            'Acer campestre': 'Field Maple',
+            'Tilia cordata': 'Small-leaved Linden',
+            'Tilia platyphyllos': 'Large-leaved Linden',
+            'Platanus x hispanica': 'London Plane',
+            'Aesculus hippocastanum': 'Horse Chestnut',
+            'Robinia pseudoacacia': 'Black Locust',
+            'Fraxinus excelsior': 'European Ash',
+            'Quercus robur': 'English Oak',
+            'Carpinus betulus': 'European Hornbeam',
+            'Betula pendula': 'Silver Birch',
+            'Prunus avium': 'Sweet Cherry',
+            'Ulmus minor': 'Field Elm',
+            'Pinus sylvestris': 'Scots Pine',
+            'Picea abies': 'Norway Spruce'
+        }
+    
+    def get_common_name(self, scientific_name: str) -> str:
+        """Convert scientific name to common name"""
+        return self.species_common_names.get(scientific_name, scientific_name)
     
     def get_info(self) -> str:
         """Return information about the Vegetation Agent"""
@@ -70,16 +94,18 @@ class VegetationAgent(BaseAgent):
                 features = data.get('features', [])
                 print(f"Received {len(features)} tree features from Vienna Open Data")
                 
-                for feature in features[:500]:  # Limit to 500 trees for performance
+                for feature in features:  # Process all trees
                     properties = feature.get('properties', {})
                     geometry = feature.get('geometry', {})
                     
                     if geometry.get('type') == 'Point':
                         coords = geometry.get('coordinates', [])
                         if len(coords) >= 2:
+                            scientific_name = properties.get('GATTUNG_ART', 'Unknown')
                             tree = {
                                 'id': properties.get('BAUM_ID', ''),
-                                'species': properties.get('GATTUNG_ART', 'Unknown'),
+                                'species': scientific_name,
+                                'common_name': self.get_common_name(scientific_name),
                                 'genus': properties.get('GATTUNG', ''),
                                 'species_name': properties.get('ART', ''),
                                 'height': properties.get('BAUMHOEHE', 0),

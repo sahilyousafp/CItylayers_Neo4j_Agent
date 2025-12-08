@@ -123,7 +123,7 @@ def chat_endpoint():
             # Explicitly set to None if 'all' is selected
             category_filter = None
             print(f"DEBUG: No category filter (showing all categories)")
-
+        
         # Process based on selected data sources
         result = None
         context_records = []
@@ -194,18 +194,11 @@ def chat_endpoint():
             "answer": answer,
             "answer_html": answer_html,
             "visualization_recommendation": viz_recommendation,
-            "detected_category_id": detected_category_id
+            "detected_category_id": detected_category_id,
+            "auto_enabled_sources": auto_enabled_sources
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/map-data", methods=["GET"])
-def map_data():
-    store = get_session_store()
-    records = store.get("last_context_records", [])
-    # Return first 5 records for inspection
-    return jsonify({"count": len(records), "sample": records[:5]})
 
 
 @app.route("/map-data", methods=["GET"])
@@ -312,7 +305,7 @@ def map_data():
                 if comments:
                     feature["comments"] = comments
             except Exception as e:
-
+                pass
         
         if grade_col:
             try:
@@ -323,7 +316,7 @@ def map_data():
                 if grade:
                     feature["grade"] = grade
             except Exception as e:
-
+                pass
         
         # Add remaining columns
         priority_cols = {lat_col, lon_col, loc_col, pid_col, cat_col, subcat_col, comments_col, grade_col}
@@ -1215,11 +1208,11 @@ def _inject_geolocation_into_tables(html: str, context_records: List[Dict[str, A
                     injected_count += 1
         
         if injected_count > 0:
-
+            pass
         
         return str(soup)
     except Exception as e:
-
+        pass
         return html
 
 
