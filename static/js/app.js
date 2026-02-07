@@ -32,6 +32,7 @@
     const chatInput = document.getElementById("chatInput");
     const chatWindow = document.getElementById("chatWindow");
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
+    const exportPdfBtn = document.getElementById("exportPdfBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceWeather = document.getElementById("source-weather");
     const expandBtn = document.getElementById("expandBtn");
@@ -2991,5 +2992,205 @@
 
     // Initial Data Load
     refreshMapData();
+
+    // ========================================================================
+    // PDF EXPORT FUNCTIONALITY
+    // ========================================================================
+
+    /**
+     * Capture map screenshot as base64 PNG
+     */
+    function captureMapScreenshot() {
+        try {
+            const canvas = map.getCanvas();
+            return canvas.toDataURL('image/png');
+        } catch (error) {
+            console.error('Failed to capture map screenshot:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Calculate statistics from current context
+     */
+    function calculateStatistics() {
+        if (!lastContextRecords || lastContextRecords.length === 0) {
+            return {
+                total_locations: 0,
+                average_rating: 0,
+                top_rated: 'N/A',
+                category_breakdown: {}
+            };
+        }
+
+        let totalRating = 0;
+        let ratingCount = 0;
+        let topRated = { name: 'N/A', rating: 0 };
+        const categoryBreakdown = {};
+
+        lastContextRecords.forEach(record => {
+            // Count by category
+            const category = record.c || 'Unknown';
+            categoryBreakdown[category] = (categoryBreakdown[category] || 0) + 1;
+
+            // Calculate average rating
+            if (record.pg) {
+                const rating = parseFloat(record.pg);
+                if (!isNaN(rating)) {
+                    totalRating += rating;
+                    ratingCount++;
+
+                    // Track top rated
+                    if (rating > topRated.rating) {
+                        topRated = {
+                            name: record.p?.name || 'Unknown',
+                            rating: rating
+                        };
+                    }
+                }
+            }
+        });
+
+        return {
+            total_locations: lastContextRecords.length,
+            average_rating: ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : 0,
+            top_rated: `${topRated.name} (${topRated.rating})`,
+            category_breakdown: categoryBreakdown
+        };
+    }
+
+    /**
+     * Get conversation history for PDF
+     */
+    function getConversationHistory() {
+        const messages = chatWindow.querySelectorAll('.user, .assistant:not(.pending):not(.error)');
+        const conversation = [];
+
+        messages.forEach(msg => {
+            if (msg.classList.contains('user')) {
+                conversation.push({
+                    role: 'user',
+                    content: msg.textContent.trim()
+                });
+            } else if (msg.classList.contains('assistant')) {
+                conversation.push({
+                    role: 'assistant',
+                    content: msg.textContent.trim()
+                });
+            }
+        });
+
+        return conversation.slice(-10); // Last 10 messages
+    }
+
+    /**
+     * Get enabled data sources
+     */
+    function getEnabledDataSources() {
+        const sources = [];
+        document.querySelectorAll('.data-source-btn.active').forEach(btn => {
+            sources.push(btn.dataset.source);
+        });
+        return sources;
+    }
+
+    /**
+     * Format locations for PDF
+     */
+    function formatLocationsForPDF() {
+        if (!lastContextRecords || lastContextRecords.length === 0) {
+            return [];
+        }
+
+        return lastContextRecords.slice(0, 10).map(record => ({
+            name: record.p?.name || 'Unknown',
+            address: record.precise_address || record.p?.location || 'Address not available',
+            category: record.c || 'Unknown',
+            rating: record.pg ? parseFloat(record.pg).toFixed(1) : 'N/A',
+            comments: Array.isArray(record.co) ? record.co.slice(0, 3) : []
+        }));
+    }
+
+    /**
+     * Export PDF report
+     */
+    async function exportPdfReport() {
+        // Disable button during export
+        exportPdfBtn.disabled = true;
+        exportPdfBtn.textContent = '⏳ Generating PDF...';
+
+        try {
+            // Capture map screenshot
+            const mapScreenshot = captureMapScreenshot();
+            if (!mapScreenshot) {
+                throw new Error('Failed to capture map screenshot');
+            }
+
+            // Collect data
+            const statistics = calculateStatistics();
+            const conversation = getConversationHistory();
+            const dataSources = getEnabledDataSources();
+            const locations = formatLocationsForPDF();
+
+            // Prepare export payload
+            const exportPayload = {
+                conversation: conversation,
+                map_screenshot: mapScreenshot,
+                locations: locations,
+                statistics: statistics,
+                data_sources: dataSources,
+                timestamp: new Date().toISOString()
+            };
+
+            // Send to backend
+            const response = await fetch('/export-pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(exportPayload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to generate PDF');
+            }
+
+            // Get PDF blob
+            const blob = await response.blob();
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `city_layers_report_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Show success message
+            addMessageToChat('✅ PDF report exported successfully!', 'system');
+
+        } catch (error) {
+            console.error('PDF export failed:', error);
+            addMessageToChat(`❌ PDF export failed: ${error.message}`, 'system');
+        } finally {
+            // Re-enable button
+            exportPdfBtn.disabled = false;
+            exportPdfBtn.textContent = '📄 Export Report';
+        }
+    }
+
+    // Attach export button handler
+    if (exportPdfBtn) {
+        exportPdfBtn.addEventListener('click', exportPdfReport);
+    }
+
+    // ========================================================================
+    // END OF PDF EXPORT FUNCTIONALITY
+    // ========================================================================
 
 })();
