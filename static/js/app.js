@@ -75,6 +75,7 @@
     let vegetationData = []; // Vegetation/tree data
     let popupModeActive = false; // Popup mode state
     let weatherPopups = []; // Array to store created popups
+    let lastContextRecords = []; // Store context records from last query for PDF export
 
     // ========================================================================
     // CATEGORY CONFIGURATION
