@@ -1,12 +1,23 @@
 import os
 import json
 from typing import Dict, Any, List, Tuple
-from flask import Flask, render_template, request, jsonify, session
-from datetime import timedelta
+from flask import Flask, render_template, request, jsonify, session, make_response
+from datetime import timedelta, datetime
 import pandas as pd
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+import base64
+
+# PDF generation
+from reportlab.lib.pagesizes import A4, letter
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Image as RLImage
+from reportlab.lib import colors
+import markdown2
 
 # Import agents
 from agents import Neo4jAgent, WebScraperAgent, OSMAgent, OpenMeteoAgent, MovementAgent, VegetationAgent
@@ -33,6 +44,7 @@ def get_session_store() -> Dict[str, Any]:
             "chat_history": [],  # list[tuple[str, str]]
             "last_context_records": [],  # list[dict]
             "address_cache": {},  # dict[(lat, lon): str] - Mapbox geocoding cache
+            "exported_reports": [],  # list[dict] - Report export metadata
             "neo4j_agent": Neo4jAgent(Config.AGENTS["neo4j"]),
             # "viz_agent": VisualizationAgent(), # Deprecated
             "scraper_agent": WebScraperAgent(),
@@ -1774,6 +1786,220 @@ def _inject_geolocation_into_tables(html: str, context_records: List[Dict[str, A
     except Exception as e:
         pass
         return html
+
+
+def _generate_pdf_report(
+    conversation: List[Dict[str, Any]],
+    map_screenshot: str,
+    locations: List[Dict[str, Any]],
+    statistics: Dict[str, Any],
+    data_sources: List[str],
+    report_title: str
+) -> bytes:
+    """
+    Generate PDF report using reportlab.
+    
+    Args:
+        conversation: List of chat messages
+        map_screenshot: Base64 encoded map screenshot
+        locations: List of location data
+        statistics: Statistics dict
+        data_sources: Enabled data sources
+        report_title: Title for the report
+        
+    Returns:
+        PDF bytes
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                           rightMargin=72, leftMargin=72,
+                           topMargin=72, bottomMargin=18)
+    
+    # Container for the 'Flowable' objects
+    elements = []
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#00bcd4'),
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#0097a7'),
+        spaceAfter=12,
+        spaceBefore=12
+    )
+    
+    # 1. Cover Page
+    elements.append(Spacer(1, 2*inch))
+    elements.append(Paragraph(f"<b>City Layers Analysis Report</b>", title_style))
+    elements.append(Spacer(1, 0.5*inch))
+    elements.append(Paragraph(f"<b>{report_title}</b>", styles['Heading2']))
+    elements.append(Spacer(1, 0.3*inch))
+    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    elements.append(Paragraph(f"Data Sources: {', '.join(data_sources)}", styles['Normal']))
+    elements.append(PageBreak())
+    
+    # 2. Executive Summary
+    elements.append(Paragraph("<b>Executive Summary</b>", heading_style))
+    summary_text = f"""
+    This report provides comprehensive analysis of {statistics.get('total_locations', 0)} locations
+    across the selected area. The data includes insights from multiple categories with an average rating
+    of {statistics.get('average_rating', 0):.1f} out of 10.
+    """
+    elements.append(Paragraph(summary_text, styles['Normal']))
+    elements.append(Spacer(1, 12))
+    
+    # 3. Map Visualization
+    if map_screenshot and map_screenshot.startswith('data:image'):
+        elements.append(Paragraph("<b>Map Visualization</b>", heading_style))
+        try:
+            # Extract base64 data
+            image_data = map_screenshot.split(',')[1]
+            image_bytes = base64.b64decode(image_data)
+            image_buffer = BytesIO(image_bytes)
+            
+            # Add image to PDF
+            img = RLImage(image_buffer, width=5*inch, height=3.5*inch)
+            elements.append(img)
+            elements.append(Spacer(1, 12))
+        except Exception as e:
+            print(f"WARN: Could not embed map screenshot: {e}")
+            elements.append(Paragraph("Map screenshot unavailable", styles['Italic']))
+    
+    elements.append(PageBreak())
+    
+    # 4. Conversation Log
+    elements.append(Paragraph("<b>Conversation Log</b>", heading_style))
+    for msg in conversation[-10:]:  # Last 10 messages
+        msg_type = msg.get('type', 'user')
+        msg_text = msg.get('message', '')
+        timestamp = msg.get('timestamp', '')
+        
+        if msg_type == 'user':
+            elements.append(Paragraph(f"<b>User ({timestamp}):</b>", styles['Normal']))
+            elements.append(Paragraph(msg_text, styles['Normal']))
+        else:
+            elements.append(Paragraph(f"<b>Assistant ({timestamp}):</b>", styles['Normal']))
+            # Convert markdown to plain text (simplified)
+            plain_text = msg_text.replace('#', '').replace('*', '').replace('_', '')[:500]
+            elements.append(Paragraph(plain_text, styles['Normal']))
+        
+        elements.append(Spacer(1, 8))
+    
+    elements.append(PageBreak())
+    
+    # 5. Statistics Table
+    elements.append(Paragraph("<b>Data Insights</b>", heading_style))
+    
+    stats_data = [
+        ['Metric', 'Value'],
+        ['Total Locations', str(statistics.get('total_locations', 0))],
+        ['Average Rating', f"{statistics.get('average_rating', 0):.1f} / 10"],
+        ['Top Rated Location', statistics.get('top_rated', {}).get('name', 'N/A')],
+        ['Top Rating', f"{statistics.get('top_rated', {}).get('rating', 0):.1f}"],
+    ]
+    
+    stats_table = Table(stats_data, colWidths=[3*inch, 3*inch])
+    stats_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00bcd4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    elements.append(stats_table)
+    elements.append(Spacer(1, 12))
+    
+    # 6. Top Locations
+    elements.append(PageBreak())
+    elements.append(Paragraph("<b>Top Locations (Top 10)</b>", heading_style))
+    
+    for i, loc in enumerate(locations[:10], 1):
+        elements.append(Paragraph(f"<b>{i}. {loc.get('name', 'Unknown')}</b>", styles['Heading3']))
+        elements.append(Paragraph(f"Address: {loc.get('precise_address', 'N/A')}", styles['Normal']))
+        elements.append(Paragraph(f"Category: {loc.get('category', 'N/A')} | Rating: {loc.get('grade', 0):.1f}/10", styles['Normal']))
+        
+        # Add top comment
+        comments = loc.get('comments', [])
+        if comments and len(comments) > 0:
+            top_comment = comments[0]
+            comment_text = top_comment.get('text', '')[:200]
+            elements.append(Paragraph(f"💬 \"{comment_text}...\"", styles['Italic']))
+        
+        elements.append(Spacer(1, 12))
+    
+    # Build PDF
+    doc.build(elements)
+    
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    
+    return pdf_bytes
+
+
+@app.route("/export-pdf", methods=["POST"])
+def export_pdf():
+    """Generate and download PDF report."""
+    store = get_session_store()
+    
+    try:
+        payload = request.get_json() or {}
+        
+        # Extract data from payload
+        conversation = payload.get("conversation", [])
+        map_screenshot = payload.get("map_screenshot", "")
+        locations = payload.get("locations", [])
+        statistics = payload.get("statistics", {})
+        data_sources = payload.get("data_sources", ["citylayers"])
+        report_title = payload.get("report_title", "Location Analysis")
+        
+        print(f"DEBUG: Generating PDF report with {len(locations)} locations")
+        
+        # Generate PDF
+        pdf_bytes = _generate_pdf_report(
+            conversation=conversation,
+            map_screenshot=map_screenshot,
+            locations=locations,
+            statistics=statistics,
+            data_sources=data_sources,
+            report_title=report_title
+        )
+        
+        # Track export in session
+        report_meta = {
+            "timestamp": datetime.now().isoformat(),
+            "title": report_title,
+            "locations_count": len(locations),
+            "data_sources": data_sources
+        }
+        store["exported_reports"].append(report_meta)
+        if len(store["exported_reports"]) > 10:
+            store["exported_reports"] = store["exported_reports"][-10:]
+        
+        print(f"DEBUG: PDF generated successfully ({len(pdf_bytes)} bytes)")
+        
+        # Create response
+        response = make_response(pdf_bytes)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="city_layers_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+        
+        return response
+        
+    except Exception as e:
+        print(f"ERROR: PDF generation failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":
