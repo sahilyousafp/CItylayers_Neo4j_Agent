@@ -49,13 +49,18 @@ class MovementAgent(BaseAgent):
         Returns:
             List of nearby stations with their information
         """
+        import time
+        
+        # Limit radius to prevent overload
+        radius = min(radius, 3000)  # Max 3km to avoid timeouts
+        
         try:
             # Using OpenStreetMap Overpass API for public transport stops
             overpass_url = "http://overpass-api.de/api/interpreter"
             
             # Query for public transport stops within radius
             query = f"""
-            [out:json];
+            [out:json][timeout:25];
             (
               node["public_transport"="stop_position"](around:{radius},{lat},{lon});
               node["highway"="bus_stop"](around:{radius},{lat},{lon});
@@ -66,29 +71,49 @@ class MovementAgent(BaseAgent):
             out body;
             """
             
-            response = requests.post(overpass_url, data={'data': query}, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                stations = []
-                
-                for element in data.get('elements', []):
-                    tags = element.get('tags', {})
-                    station = {
-                        'id': element.get('id'),
-                        'name': tags.get('name', 'Unnamed Stop'),
-                        'lat': element.get('lat'),
-                        'lon': element.get('lon'),
-                        'type': self._get_transport_type(tags),
-                        'operator': tags.get('operator', 'Unknown'),
-                        'network': tags.get('network', ''),
-                    }
-                    stations.append(station)
-                
-                return stations
-            else:
-                print(f"Error fetching stations: {response.status_code}")
-                return []
+            # Retry logic with exponential backoff
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(overpass_url, data={'data': query}, timeout=30)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        stations = []
+                        
+                        for element in data.get('elements', []):
+                            tags = element.get('tags', {})
+                            station = {
+                                'id': element.get('id'),
+                                'name': tags.get('name', 'Unnamed Stop'),
+                                'lat': element.get('lat'),
+                                'lon': element.get('lon'),
+                                'type': self._get_transport_type(tags),
+                                'operator': tags.get('operator', 'Unknown'),
+                                'network': tags.get('network', ''),
+                            }
+                            stations.append(station)
+                        
+                        return stations
+                    elif response.status_code == 504 and attempt < max_retries - 1:
+                        # Retry on timeout
+                        wait_time = (attempt + 1) * 2
+                        print(f"Overpass API timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"Error fetching stations: {response.status_code}")
+                        return []
+                        
+                except requests.exceptions.Timeout:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 2
+                        print(f"Request timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"Request timeout after {max_retries} attempts")
+                        return []
                 
         except Exception as e:
             print(f"Error in get_nearby_stations: {e}")

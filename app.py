@@ -1314,7 +1314,7 @@ def transport_data():
         lat_diff = north - south
         lon_diff = east - west
         radius = int(max(lat_diff, lon_diff) * 111000 / 2)  # Convert to meters
-        radius = min(radius, 5000)  # Max 5km radius
+        radius = min(radius, 3000)  # Max 3km radius to prevent API timeouts
         
         store = get_session_store()
         movement_agent = store["movement_agent"]

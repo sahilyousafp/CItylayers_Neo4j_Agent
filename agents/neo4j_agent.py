@@ -236,7 +236,7 @@ This central historic district offers **exceptional urban quality** with beautif
 - **Excellent transit access** (U1, U3 metro lines)
 ```
 
-Now provide your answer based on the database results above:"""
+Now provide your answer based on the database results above:
      1. "Comment text" - *Date or Context*
      2. "Comment text" - *Date or Context*
      3. (etc.)
@@ -668,9 +668,6 @@ class Neo4jAgent(BaseAgent):
             Dictionary with enhanced answer considering all datasets
         """
         try:
-            # Build multi-dataset prompt
-            multi_dataset_prompt = self._build_multi_dataset_prompt(query, aggregated_context)
-            
             # Enhanced QA template for multi-dataset analysis
             enhanced_template = """You are a helpful location assistant analyzing data from multiple sources. You have access to:
 

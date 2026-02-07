@@ -1664,8 +1664,8 @@
             updateDeckLayers();
         }
         
-        // Update location info header
-        updateLocationInfoForVisualization();
+        // Update location count display
+        updateLocationCountDisplay();
     }
 
     // ==============================
