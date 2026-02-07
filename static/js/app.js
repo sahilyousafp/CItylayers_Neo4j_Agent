@@ -3028,6 +3028,7 @@
      */
     function calculateStatistics() {
         if (!lastContextRecords || lastContextRecords.length === 0) {
+            console.log('DEBUG: No context records available for statistics');
             return {
                 total_locations: 0,
                 average_rating: 0,
@@ -3035,6 +3036,8 @@
                 category_breakdown: {}
             };
         }
+        
+        console.log(`DEBUG: Calculating statistics from ${lastContextRecords.length} records`);
 
         let totalRating = 0;
         let ratingCount = 0;
