@@ -1964,9 +1964,12 @@
         if (role === "assistant") {
             const exportBtn = document.createElement("button");
             exportBtn.className = "message-export-btn";
-            exportBtn.innerHTML = '↓'; // Download icon
+            exportBtn.innerHTML = '📄 Download Report'; // Text instead of just icon
             exportBtn.title = "Export this conversation as PDF";
-            exportBtn.onclick = () => exportPdfReport();
+            exportBtn.onclick = (e) => {
+                e.preventDefault();
+                exportPdfReport(exportBtn);
+            };
             div.appendChild(exportBtn);
         }
         
@@ -3124,10 +3127,11 @@
     /**
      * Export PDF report
      */
-    async function exportPdfReport() {
+    async function exportPdfReport(buttonElement) {
         // Disable button during export
-        exportPdfBtn.disabled = true;
-        exportPdfBtn.textContent = '⏳ Generating PDF...';
+        const originalText = buttonElement.innerHTML;
+        buttonElement.disabled = true;
+        buttonElement.innerHTML = '⏳ Generating...';
 
         try {
             // Capture map screenshot
@@ -3189,8 +3193,8 @@
             appendMessage('system', `❌ PDF export failed: ${error.message}`);
         } finally {
             // Re-enable button
-            exportPdfBtn.disabled = false;
-            exportPdfBtn.textContent = '📄 Export Report';
+            buttonElement.disabled = false;
+            buttonElement.innerHTML = originalText;
         }
     }
 

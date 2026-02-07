@@ -587,36 +587,34 @@ input:checked + .slider:before {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  padding: 6px 12px;
+  border-radius: 6px;
   border: 1px solid var(--secondary-color);
   background-color: var(--primary-color);
   color: var(--secondary-color);
-  font-size: 16px;
-  font-weight: bold;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   transition: all 0.2s ease;
-  opacity: 0.6;
+  opacity: 0.7;
   z-index: 10;
+  white-space: nowrap;
 }
 
 .chat-window .assistant .message-export-btn:hover {
   opacity: 1;
   background-color: var(--secondary-color);
   color: var(--primary-color);
-  transform: scale(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(1, 71, 81, 0.2);
 }
 
 .chat-window .assistant .message-export-btn:active {
-  transform: scale(0.95);
+  transform: translateY(0);
 }
 
 .chat-window .assistant .message-export-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
 }
