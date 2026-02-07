@@ -32,7 +32,6 @@
     const chatInput = document.getElementById("chatInput");
     const chatWindow = document.getElementById("chatWindow");
     const scrollBottomBtn = document.getElementById("scrollBottomBtn");
-    const exportPdfBtn = document.getElementById("exportPdfBtn");
     const sourceCityLayers = document.getElementById("source-citylayers");
     const sourceWeather = document.getElementById("source-weather");
     const expandBtn = document.getElementById("expandBtn");
@@ -1960,6 +1959,17 @@
         const div = document.createElement("div");
         div.className = role;
         div.innerHTML = html;
+        
+        // Add export button for assistant messages (not errors or pending)
+        if (role === "assistant") {
+            const exportBtn = document.createElement("button");
+            exportBtn.className = "message-export-btn";
+            exportBtn.innerHTML = '↓'; // Download icon
+            exportBtn.title = "Export this conversation as PDF";
+            exportBtn.onclick = () => exportPdfReport();
+            div.appendChild(exportBtn);
+        }
+        
         chatWindow.appendChild(div);
         
         // Add hover functionality to table rows
@@ -3182,11 +3192,6 @@
             exportPdfBtn.disabled = false;
             exportPdfBtn.textContent = '📄 Export Report';
         }
-    }
-
-    // Attach export button handler
-    if (exportPdfBtn) {
-        exportPdfBtn.addEventListener('click', exportPdfReport);
     }
 
     // ========================================================================

@@ -525,50 +525,6 @@ input:checked + .slider:before {
   margin-bottom: 0;
 }
 
-.chat-header {
-  padding: 8px 12px;
-  background-color: rgba(255, 255, 255, 0.95);
-  border-bottom: 1px solid #ddd;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  z-index: 10;
-}
-
-.export-pdf-btn {
-  background: linear-gradient(135deg, #00bcd4 0%, #0097a7 100%);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 188, 212, 0.2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.export-pdf-btn:hover {
-  background: linear-gradient(135deg, #0097a7 0%, #00838f 100%);
-  box-shadow: 0 4px 8px rgba(0, 188, 212, 0.3);
-  transform: translateY(-1px);
-}
-
-.export-pdf-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(0, 188, 212, 0.2);
-}
-
-.export-pdf-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
 .chat-window {
   flex: 1;
   overflow-y: auto;
@@ -614,6 +570,7 @@ input:checked + .slider:before {
   background-color: #F5F5F5;
   color: var(--secondary-color);
   padding: var(--margin-2);
+  padding-bottom: 40px; /* Extra space for export button */
   border-radius: 10px;
   margin-bottom: var(--margin-1);
   white-space: normal;
@@ -623,6 +580,45 @@ input:checked + .slider:before {
   line-height: 1.8;
   box-sizing: border-box;
   max-width: 100%;
+  position: relative;
+}
+
+.chat-window .assistant .message-export-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--secondary-color);
+  background-color: var(--primary-color);
+  color: var(--secondary-color);
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  opacity: 0.6;
+  z-index: 10;
+}
+
+.chat-window .assistant .message-export-btn:hover {
+  opacity: 1;
+  background-color: var(--secondary-color);
+  color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+.chat-window .assistant .message-export-btn:active {
+  transform: scale(0.95);
+}
+
+.chat-window .assistant .message-export-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .chat-window .assistant.error {
