@@ -1034,12 +1034,33 @@ AND p.longitude >= {west} AND p.longitude <= {east}
             if pg:
                 grade = pg.get('grade') or pg.get('value')
             
+            # Extract comments (if available)
+            comments = []
+            co = record.get('co')
+            if co:
+                # Handle comment data structure
+                if isinstance(co, list):
+                    # List of comments
+                    for comment in co[:5]:  # Take top 5 comments
+                        comment_text = comment.get('text') or comment.get('content') or comment.get('comment_text', '')
+                        if comment_text:
+                            comments.append(comment_text)
+                elif isinstance(co, dict):
+                    # Single comment
+                    comment_text = co.get('text') or co.get('content') or co.get('comment_text', '')
+                    if comment_text:
+                        comments.append(comment_text)
+                elif isinstance(co, str):
+                    # Direct comment string
+                    comments.append(co)
+            
             # Build location entry
             location_info = {
                 'name': location_name,
                 'category': category_name,
                 'grade': grade,
-                'coordinates': f"({lat}, {lon})" if lat and lon else None
+                'coordinates': f"({lat}, {lon})" if lat and lon else None,
+                'comments': comments if comments else None
             }
             locations.append(location_info)
         
@@ -1066,6 +1087,12 @@ AND p.longitude >= {west} AND p.longitude <= {east}
                 loc_str = f"{i}. {loc['name']} - Category: {loc['category']}"
                 if loc['grade']:
                     loc_str += f", Grade: {loc['grade']}"
+                if loc.get('comments'):
+                    loc_str += f"\n   💬 Top Comments:"
+                    for j, comment in enumerate(loc['comments'], 1):
+                        # Truncate long comments
+                        comment_preview = comment[:150] + '...' if len(comment) > 150 else comment
+                        loc_str += f"\n      {j}. \"{comment_preview}\""
                 summary_parts.append(loc_str)
         
         return "\n".join(summary_parts)
