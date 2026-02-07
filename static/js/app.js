@@ -1837,6 +1837,12 @@
             if (pending) pending.remove();
 
             if (data.ok) {
+                // Store context records for PDF export
+                if (data.context) {
+                    lastContextRecords = data.context;
+                    console.log(`DEBUG: Stored ${lastContextRecords.length} context records for PDF export`);
+                }
+                
                 if (data.answer_html) {
                     appendMessageHTML("assistant", data.answer_html);
                 } else if (data.answer) {
