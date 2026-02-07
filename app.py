@@ -413,9 +413,17 @@ def _enrich_context_with_addresses(
             else:
                 # Fallback to database location
                 p = context_records[idx].get('p', {})
-                context_records[idx]['precise_address'] = p.get('location', 'Unknown Location')
+                fallback_addr = p.get('location', 'Unknown Location')
+                context_records[idx]['precise_address'] = fallback_addr
+                print(f"DEBUG: Using fallback address for record {idx}: {fallback_addr}")
     
     print(f"DEBUG: Successfully enriched {enriched_count} records with precise addresses")
+    
+    # Debug: Show sample addresses
+    if context_records:
+        sample = context_records[0]
+        print(f"DEBUG: Sample enriched record address: {sample.get('precise_address', 'N/A')}")
+    
     return context_records
 
 
