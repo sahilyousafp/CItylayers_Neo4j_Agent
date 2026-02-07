@@ -41,6 +41,169 @@ def get_session_store() -> Dict[str, Any]:
     return SESSIONS[sid]
 
 
+def _score_comment_relevance(comment_text: str, user_query: str) -> float:
+    """
+    Score the relevance of a comment to a user's query using keyword matching.
+    
+    Args:
+        comment_text: The text content of the comment
+        user_query: The user's question
+        
+    Returns:
+        Relevance score (0.0 to 1.0), higher is more relevant
+    """
+    if not comment_text or not user_query:
+        return 0.0
+    
+    # Normalize text
+    comment_lower = comment_text.lower()
+    query_lower = user_query.lower()
+    
+    # Define stop words to exclude
+    stop_words = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should',
+        'could', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i',
+        'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when',
+        'where', 'why', 'how', 'show', 'tell', 'find', 'get', 'about', 'me'
+    }
+    
+    # Extract keywords from query (remove stop words and punctuation)
+    query_words = re.findall(r'\b\w+\b', query_lower)
+    keywords = [w for w in query_words if w not in stop_words and len(w) > 2]
+    
+    if not keywords:
+        return 0.0
+    
+    # Calculate relevance score
+    score = 0.0
+    total_keywords = len(keywords)
+    
+    # Check each keyword
+    for keyword in keywords:
+        if keyword in comment_lower:
+            # Base score for keyword presence
+            score += 1.0
+            
+            # Bonus for keyword appearing in first 50 characters (emphasize early mentions)
+            if keyword in comment_lower[:50]:
+                score += 0.5
+            
+            # Bonus for exact phrase match (multiple adjacent keywords)
+            if len(keyword) > 4:
+                score += 0.3
+    
+    # Normalize score to 0-1 range
+    max_possible_score = total_keywords * 1.8  # 1.0 + 0.5 + 0.3 per keyword
+    normalized_score = min(score / max_possible_score, 1.0) if max_possible_score > 0 else 0.0
+    
+    return normalized_score
+
+
+def _get_top_relevant_comments(
+    comments: List[Dict[str, Any]],
+    user_query: str,
+    top_n: int = 5
+) -> List[Dict[str, Any]]:
+    """
+    Get the top N most relevant comments based on user query.
+    
+    Args:
+        comments: List of comment dictionaries with 'text' field
+        user_query: The user's question
+        top_n: Number of top comments to return
+        
+    Returns:
+        List of top N most relevant comments with relevance scores
+    """
+    if not comments:
+        return []
+    
+    # Score all comments
+    scored_comments = []
+    for comment in comments:
+        comment_text = comment.get('text') or comment.get('content') or comment.get('comment_text') or ''
+        if comment_text:
+            score = _score_comment_relevance(comment_text, user_query)
+            scored_comments.append({
+                **comment,
+                'relevance_score': score
+            })
+    
+    # Sort by relevance score (descending) and return top N
+    scored_comments.sort(key=lambda x: x['relevance_score'], reverse=True)
+    return scored_comments[:top_n]
+
+
+def _apply_comment_relevance_scoring(
+    context_records: List[Dict[str, Any]],
+    user_query: str
+) -> List[Dict[str, Any]]:
+    """
+    Apply comment relevance scoring to context records.
+    For each place/record, rank its comments by relevance to user query.
+    
+    Args:
+        context_records: List of Neo4j records with places and comments
+        user_query: The user's question
+        
+    Returns:
+        Context records with comments sorted by relevance
+    """
+    if not context_records:
+        return context_records
+    
+    processed_records = []
+    
+    for record in context_records:
+        # Create a copy to avoid modifying original
+        new_record = dict(record)
+        
+        # Check if this record has comments
+        if 'co' in record and record['co']:
+            comments_data = record['co']
+            
+            # Handle different comment structures
+            if isinstance(comments_data, list):
+                # List of comment objects
+                top_comments = _get_top_relevant_comments(comments_data, user_query, top_n=5)
+                new_record['co'] = top_comments
+            elif isinstance(comments_data, dict):
+                # Single comment object
+                scored_comment = {
+                    **comments_data,
+                    'relevance_score': _score_comment_relevance(
+                        comments_data.get('text', ''), 
+                        user_query
+                    )
+                }
+                new_record['co'] = [scored_comment]
+        
+        # Also check for 'comments' or 'comments_info' fields
+        for comment_field in ['comments', 'comments_info', 'comment']:
+            if comment_field in record and record[comment_field]:
+                comments_data = record[comment_field]
+                
+                if isinstance(comments_data, list):
+                    top_comments = _get_top_relevant_comments(comments_data, user_query, top_n=5)
+                    new_record[comment_field] = top_comments
+                elif isinstance(comments_data, dict):
+                    scored_comment = {
+                        **comments_data,
+                        'relevance_score': _score_comment_relevance(
+                            comments_data.get('text', ''), 
+                            user_query
+                        )
+                    }
+                    new_record[comment_field] = [scored_comment]
+        
+        processed_records.append(new_record)
+    
+    print(f"DEBUG: Applied comment relevance scoring to {len(processed_records)} records")
+    return processed_records
+
+
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", mapbox_token=Config.MAPBOX_ACCESS_TOKEN)
@@ -314,6 +477,9 @@ def chat_endpoint():
         for source, info in aggregated_context.items():
             if info["enabled"]:
                 print(f"  - {source}: {info['count']} items")
+        
+        # Apply comment relevance scoring to context_records
+        context_records = _apply_comment_relevance_scoring(context_records, question)
         
         # If multiple datasets are enabled, enhance the answer with cross-dataset analysis
         if len([s for s in data_sources if aggregated_context[s]["enabled"]]) > 1:

@@ -128,8 +128,10 @@ Database Results:
    | **Highest Rated** | Location name (X.X/10) |
    
    - **Key Highlights:** 3-4 bullet points with interesting findings
-   - **Top 5 Comments from this Region:** (if available)
-     - "Comment text" - *Location Name* (Rating: X.X/10)
+   - **Top 5 Relevant Comments from this Region:** (if available)
+     - Show comments that best match the context of the user's question
+     - Do NOT sort by rating - show contextually relevant comments
+     - Format: "Comment text" - *Location Name*
    - Keep under 250 words total
    - Use **bold** for important numbers, ratings, and category names
 
@@ -146,7 +148,95 @@ Database Results:
    
    - **About this location:** 1-2 sentences explaining what makes it special
    
-   - **💬 Top 5 Visitor Comments:** (if comments available)
+   - **💬 Top 5 Relevant Visitor Comments:** (if comments available)
+     1. "Comment text" - *Context or Detail*
+     2. "Comment text" - *Context or Detail*
+     3. ...
+     
+   - **What makes it special:**  
+     - 3-4 bullet points highlighting unique features
+   
+   - Keep simple and scannable
+   - Use emojis sparingly for visual hierarchy
+
+3. **Comment Selection - IMPORTANT:**
+   - Show comments that are RELEVANT to the user's question context
+   - If the user asks about "beauty", prioritize comments mentioning aesthetics, views, architecture
+   - If asking about "transport", prioritize comments about accessibility, transit connections
+   - If asking about "safety", prioritize comments mentioning security, crime, lighting
+   - Do NOT just show highest-rated location comments
+   - Do NOT mention ratings or scores in comment display
+   - Focus on comments that answer the user's specific interest
+
+4. **General Style:**
+- Always include **Top 5 Relevant Comments** when available
+- Focus on "what" and "why" - help people understand what they're looking at
+- Add context: explain what categories mean, why ratings matter
+- Use simple words: "places" not "locations", "rating" not "grade"
+- If showing comments, include location name for context
+- DO NOT mention map UI interactions or technical database terms
+- If no results: suggest alternatives in a helpful, friendly way
+- Keep your response focused on the DATABASE RESULTS provided
+- DO NOT make up information about specific places - stick to the data
+- Additional context about landmarks may be provided separately
+
+**Example Output (Area Query):**
+```
+### 📍 Vienna District 1
+
+This central historic district offers **exceptional urban quality** with beautiful architecture, excellent transit, and vibrant public spaces.
+
+| Metric | Value |
+|--------|-------|
+| **Total Places** | **523** locations 🌟 |
+| **Most Common** | Movement (**156** places, 30%) |
+| **Average Rating** | **7.8** out of 10 ⭐ |
+| **Highest Rated** | **Stephansplatz** (9.2/10) 🏆 |
+
+**Key Highlights:**
+- **Movement** and **Beauty** are the strongest categories here
+- Over **200 places** rated above **8.0** - great quality overall!
+- The historic core has the **highest concentration** of top-rated spots
+- **Protection** ratings range from 5.2 to 9.8, showing variety in safety perceptions
+
+**Top 5 Relevant Comments from this Region:**
+1. "Absolutely stunning architecture and atmosphere!" - *Stephansplatz*
+2. "Great public transport connections, very easy to get around" - *Karlsplatz*
+3. "Beautiful pedestrian areas with lots of cafes" - *Graben Street*
+4. "Can get crowded with tourists during summer" - *Stephansplatz*
+5. "Well-maintained parks and green spaces" - *Stadtpark*
+```
+
+**Example 2 (Specific Location):**
+```
+### 📍 Stephansplatz
+
+| Property | Details |
+|----------|---------|
+| 📍 **Location** | Stephansplatz 3, 1010 Vienna, Austria |
+| 🏷️ **Category** | **Beauty** |
+| ⭐ **Rating** | **9.2** out of 10 |
+| 📝 **What it's about** | Vienna's most famous public square with stunning Gothic cathedral |
+
+**About this location:**
+**Stephansplatz** is the heart of Vienna's historic center, featuring the magnificent **St. Stephen's Cathedral**. This medieval square attracts visitors from around the world and consistently ranks as one of **Vienna's most beautiful** locations.
+
+**💬 Top 5 Relevant Visitor Comments:**
+1. "Absolutely breathtaking architecture, especially the cathedral!"
+2. "Perfect central meeting point with amazing atmosphere"
+3. "Best at night when the cathedral is lit up"
+4. "Can be very crowded, but worth visiting early morning"
+5. "Great street performers and energy, very photogenic"
+
+**What makes it special:**
+- **Gothic cathedral** dating back to the 12th century
+- **Bustling pedestrian zone** with street performers daily
+- Central **meeting point** and top tourist destination
+- Surrounded by **luxury shops** and historic buildings
+- **Excellent transit access** (U1, U3 metro lines)
+```
+
+Now provide your answer based on the database results above:"""
      1. "Comment text" - *Date or Context*
      2. "Comment text" - *Date or Context*
      3. (etc.)
