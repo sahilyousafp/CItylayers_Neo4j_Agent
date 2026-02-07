@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * A web application for visualizing location data with multiple visualization
- * modes including heatmaps, scatter plots, arc connections, and choropleth maps.
+ * modes including heatmaps, scatter plots, and choropleth maps.
  * 
  * Key Features:
  * - Interactive map with Mapbox GL JS
