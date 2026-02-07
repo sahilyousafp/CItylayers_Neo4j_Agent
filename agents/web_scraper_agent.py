@@ -346,13 +346,6 @@ class WebScraperAgent(BaseAgent):
                 "reason": "Comparing regional statistics across countries/areas"
             })
         
-        if has_flow:
-            recommendations.append({
-                "type": "arc",
-                "confidence": 0.85,
-                "reason": "Showing flow or connections between locations"
-            })
-        
         # Default fallback
         if not recommendations:
             if num_locations > 100:
@@ -403,7 +396,7 @@ class WebScraperAgent(BaseAgent):
                 "Location extraction from text",
                 "Table and list extraction",
                 "Visualization recommendation based on query analysis",
-                "Support for multiple visualization types (scatter, heatmap, hexagon, choropleth, arc)",
+                "Support for multiple visualization types (scatter, heatmap, hexagon, choropleth)",
             ],
             "configuration": {
                 "timeout": self.timeout,
@@ -415,6 +408,5 @@ class WebScraperAgent(BaseAgent):
                 "heatmap - Density/concentration maps",
                 "hexagon - 3D aggregated hexagonal bins",
                 "choropleth - Regional statistical comparisons",
-                "arc - Flow/connection visualization",
             ],
         }

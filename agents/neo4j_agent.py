@@ -1016,7 +1016,8 @@ AND p.longitude >= {west} AND p.longitude <= {east}
             if not p:
                 continue
             
-            location_name = p.get('location', 'Unknown Location')
+            # Use precise address if available (from Mapbox), fallback to DB location
+            location_name = record.get('precise_address') or p.get('location', 'Unknown Location')
             lat = p.get('latitude')
             lon = p.get('longitude')
             

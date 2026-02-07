@@ -5,6 +5,8 @@ from flask import Flask, render_template, request, jsonify, session
 from datetime import timedelta
 import pandas as pd
 import re
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import agents
 from agents import Neo4jAgent, WebScraperAgent, OSMAgent, OpenMeteoAgent, MovementAgent, VegetationAgent
@@ -30,6 +32,7 @@ def get_session_store() -> Dict[str, Any]:
         SESSIONS[sid] = {
             "chat_history": [],  # list[tuple[str, str]]
             "last_context_records": [],  # list[dict]
+            "address_cache": {},  # dict[(lat, lon): str] - Mapbox geocoding cache
             "neo4j_agent": Neo4jAgent(Config.AGENTS["neo4j"]),
             # "viz_agent": VisualizationAgent(), # Deprecated
             "scraper_agent": WebScraperAgent(),
@@ -202,6 +205,206 @@ def _apply_comment_relevance_scoring(
     
     print(f"DEBUG: Applied comment relevance scoring to {len(processed_records)} records")
     return processed_records
+
+
+def _reverse_geocode_location(lat: float, lon: float, mapbox_token: str) -> Dict[str, Any]:
+    """
+    Reverse geocode coordinates to precise address using Mapbox Geocoding API.
+    
+    Args:
+        lat: Latitude coordinate
+        lon: Longitude coordinate
+        mapbox_token: Mapbox access token
+        
+    Returns:
+        Dictionary with:
+            - ok: bool (success status)
+            - address: str (formatted address)
+            - raw: dict (full API response)
+            - error: str (if failed)
+    """
+    # Validate coordinates
+    if not lat or not lon or lat < -90 or lat > 90 or lon < -180 or lon > 180:
+        return {"ok": False, "error": "Invalid coordinates", "address": None}
+    
+    try:
+        # Mapbox API endpoint (lon, lat order - not lat, lon!)
+        url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{lon},{lat}.json"
+        params = {
+            "access_token": mapbox_token,
+            "types": "address,place,locality"  # Prefer street addresses
+        }
+        
+        # Make API request with timeout
+        response = requests.get(url, params=params, timeout=3)
+        
+        # Check response status
+        if response.status_code == 429:
+            print(f"WARN: Mapbox rate limit exceeded")
+            return {"ok": False, "error": "Rate limit exceeded", "address": None}
+        
+        if response.status_code != 200:
+            print(f"WARN: Mapbox API returned status {response.status_code}")
+            return {"ok": False, "error": f"API returned {response.status_code}", "address": None}
+        
+        # Parse response
+        data = response.json()
+        features = data.get('features', [])
+        
+        if not features:
+            print(f"WARN: No address found for coordinates ({lat}, {lon})")
+            return {"ok": False, "error": "No address found", "address": None}
+        
+        # Extract formatted address from first feature
+        place_name = features[0].get('place_name', '')
+        
+        if place_name:
+            return {
+                "ok": True,
+                "address": place_name,
+                "raw": features[0]
+            }
+        else:
+            return {"ok": False, "error": "No place_name in response", "address": None}
+            
+    except requests.exceptions.Timeout:
+        print(f"WARN: Mapbox geocoding timeout for ({lat}, {lon})")
+        return {"ok": False, "error": "Request timeout", "address": None}
+    except requests.exceptions.RequestException as e:
+        print(f"WARN: Mapbox geocoding network error: {e}")
+        return {"ok": False, "error": f"Network error: {str(e)}", "address": None}
+    except Exception as e:
+        print(f"ERROR: Unexpected error in geocoding: {e}")
+        return {"ok": False, "error": f"Unexpected error: {str(e)}", "address": None}
+
+
+def _batch_geocode_locations(
+    locations: List[Tuple[float, float]], 
+    mapbox_token: str,
+    address_cache: Dict[Tuple[float, float], str],
+    max_workers: int = 10
+) -> Dict[Tuple[float, float], str]:
+    """
+    Geocode multiple locations concurrently using ThreadPoolExecutor.
+    
+    Args:
+        locations: List of (lat, lon) tuples to geocode
+        mapbox_token: Mapbox access token
+        address_cache: Existing address cache (will be checked and updated)
+        max_workers: Number of concurrent threads
+        
+    Returns:
+        Dictionary mapping (lat, lon) to addresses
+    """
+    results = {}
+    
+    # Filter out already cached locations
+    locations_to_geocode = []
+    for lat, lon in locations:
+        cache_key = (round(lat, 4), round(lon, 4))
+        if cache_key in address_cache:
+            results[cache_key] = address_cache[cache_key]
+        else:
+            locations_to_geocode.append((lat, lon))
+    
+    if not locations_to_geocode:
+        print(f"DEBUG: All {len(locations)} locations found in cache")
+        return results
+    
+    print(f"DEBUG: Geocoding {len(locations_to_geocode)} new locations (batch)")
+    
+    # Geocode remaining locations concurrently
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_coords = {
+            executor.submit(_reverse_geocode_location, lat, lon, mapbox_token): (lat, lon)
+            for lat, lon in locations_to_geocode
+        }
+        
+        for future in as_completed(future_to_coords):
+            coords = future_to_coords[future]
+            cache_key = (round(coords[0], 4), round(coords[1], 4))
+            
+            try:
+                result = future.result()
+                if result.get('ok') and result.get('address'):
+                    address = result['address']
+                    results[cache_key] = address
+                    address_cache[cache_key] = address
+                    print(f"DEBUG: Geocoded ({coords[0]:.4f}, {coords[1]:.4f}) -> {address[:50]}...")
+            except Exception as e:
+                print(f"WARN: Failed to geocode {coords}: {e}")
+    
+    print(f"DEBUG: Successfully geocoded {len(results) - len(results.keys() & address_cache.keys())} locations")
+    return results
+
+
+def _enrich_context_with_addresses(
+    context_records: List[Dict[str, Any]], 
+    mapbox_token: str,
+    address_cache: Dict[Tuple[float, float], str],
+    max_locations: int = 50
+) -> List[Dict[str, Any]]:
+    """
+    Enrich context records with precise Mapbox addresses.
+    
+    Args:
+        context_records: List of Neo4j records
+        mapbox_token: Mapbox API token
+        address_cache: Session address cache (will be updated)
+        max_locations: Maximum number of locations to geocode (rate limiting)
+        
+    Returns:
+        Enhanced records with 'precise_address' field
+    """
+    if not context_records or not mapbox_token:
+        print("DEBUG: Skipping address enrichment (no records or token)")
+        return context_records
+    
+    # Collect unique coordinates from records
+    coord_to_records = {}  # Map cache_key to list of record indices
+    locations_to_geocode = []
+    
+    for idx, record in enumerate(context_records[:max_locations]):
+        p = record.get('p', {})
+        lat = p.get('latitude')
+        lon = p.get('longitude')
+        
+        if lat and lon:
+            cache_key = (round(lat, 4), round(lon, 4))
+            if cache_key not in coord_to_records:
+                coord_to_records[cache_key] = []
+                locations_to_geocode.append((lat, lon))
+            coord_to_records[cache_key].append(idx)
+    
+    if not locations_to_geocode:
+        print("DEBUG: No valid coordinates found for geocoding")
+        return context_records
+    
+    print(f"DEBUG: Enriching {len(locations_to_geocode)} unique locations with Mapbox addresses")
+    
+    # Batch geocode all unique locations
+    geocoded_addresses = _batch_geocode_locations(
+        locations_to_geocode,
+        mapbox_token,
+        address_cache
+    )
+    
+    # Apply addresses to records
+    enriched_count = 0
+    for cache_key, record_indices in coord_to_records.items():
+        address = geocoded_addresses.get(cache_key)
+        
+        for idx in record_indices:
+            if address:
+                context_records[idx]['precise_address'] = address
+                enriched_count += 1
+            else:
+                # Fallback to database location
+                p = context_records[idx].get('p', {})
+                context_records[idx]['precise_address'] = p.get('location', 'Unknown Location')
+    
+    print(f"DEBUG: Successfully enriched {enriched_count} records with precise addresses")
+    return context_records
 
 
 @app.route("/", methods=["GET"])
@@ -480,6 +683,14 @@ def chat_endpoint():
         
         # Apply comment relevance scoring to context_records
         context_records = _apply_comment_relevance_scoring(context_records, question)
+        
+        # Enrich context records with precise Mapbox addresses
+        context_records = _enrich_context_with_addresses(
+            context_records=context_records,
+            mapbox_token=Config.MAPBOX_ACCESS_TOKEN,
+            address_cache=store.get("address_cache", {}),
+            max_locations=50
+        )
         
         # If multiple datasets are enabled, enhance the answer with cross-dataset analysis
         if len([s for s in data_sources if aggregated_context[s]["enabled"]]) > 1:
