@@ -3182,11 +3182,11 @@
             document.body.removeChild(a);
 
             // Show success message
-            addMessageToChat('✅ PDF report exported successfully!', 'system');
+            appendMessage('system', '✅ PDF report exported successfully!');
 
         } catch (error) {
             console.error('PDF export failed:', error);
-            addMessageToChat(`❌ PDF export failed: ${error.message}`, 'system');
+            appendMessage('system', `❌ PDF export failed: ${error.message}`);
         } finally {
             // Re-enable button
             exportPdfBtn.disabled = false;
