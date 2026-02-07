@@ -51,6 +51,9 @@
     const temperaturePanel = dataPanel?.querySelector("#weatherTab");
     const temperatureValue = dataPanel?.querySelector(".temperature-value");
     const temperatureHoverInfo = dataPanel?.querySelector(".temperature-hover-info");
+    const popupModeBtn = document.getElementById("popupModeBtn");
+    const windSpeedEl = document.getElementById("windSpeed");
+    const windDirectionEl = document.getElementById("windDirection");
 
     // ========================================================================
     // STATE VARIABLES
@@ -70,6 +73,8 @@
     let weatherHeatmapData = []; // Weather data points
     let transportStations = []; // Transport station data
     let vegetationData = []; // Vegetation/tree data
+    let popupModeActive = false; // Popup mode state
+    let weatherPopups = []; // Array to store created popups
 
     // ========================================================================
     // CATEGORY CONFIGURATION
@@ -96,6 +101,19 @@
     // ========================================================================
     // HELPER FUNCTIONS
     // ========================================================================
+    
+    /**
+     * Convert wind direction in degrees to cardinal direction
+     * @param {number} degrees - Wind direction in degrees (0-360)
+     * @returns {string} Cardinal direction (N, NE, E, SE, S, SW, W, NW)
+     */
+    function degreesToCardinal(degrees) {
+        if (degrees === null || degrees === undefined) return 'N/A';
+        
+        const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        const index = Math.round(((degrees % 360) / 45)) % 8;
+        return directions[index];
+    }
     
     /**
      * Get the current active bounds (drawn region or viewport)
@@ -246,6 +264,9 @@
                 pitch: pitch,
                 bearing: bearing
             });
+            
+            // Update compass after restoring bearing
+            updateCompassRotation();
             
             // Reapply custom layers (3D buildings, etc.)
             customizeMapLayers();
@@ -449,6 +470,16 @@
             
             if (nearestPoint) {
                 temperatureHoverInfo.textContent = `${nearestPoint.temperature.toFixed(1)}°C`;
+                
+                // Update wind speed and direction
+                if (windSpeedEl && windDirectionEl) {
+                    windSpeedEl.textContent = nearestPoint.windSpeed !== undefined && nearestPoint.windSpeed !== null 
+                        ? nearestPoint.windSpeed.toFixed(1) + ' m/s' 
+                        : 'N/A';
+                    windDirectionEl.textContent = nearestPoint.windDirection !== undefined && nearestPoint.windDirection !== null 
+                        ? degreesToCardinal(nearestPoint.windDirection) + ' (' + nearestPoint.windDirection.toFixed(0) + '°)'
+                        : 'N/A';
+                }
             }
         }
     });
@@ -458,6 +489,17 @@
         if (temperatureHoverInfo && weatherEnabled && weatherHeatmapData.length > 0) {
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             temperatureHoverInfo.textContent = `Avg: ${avgTemp}°C`;
+            
+            // Reset wind data to average
+            if (windSpeedEl && windDirectionEl && weatherHeatmapData.length > 0) {
+                const avgWindSpeed = weatherHeatmapData.reduce((sum, p) => sum + (p.windSpeed || 0), 0) / weatherHeatmapData.length;
+                const avgWindDirection = weatherHeatmapData.reduce((sum, p) => sum + (p.windDirection || 0), 0) / weatherHeatmapData.length;
+                
+                const hasWindData = weatherHeatmapData.some(p => p.windSpeed !== undefined && p.windSpeed !== null);
+                
+                windSpeedEl.textContent = hasWindData ? avgWindSpeed.toFixed(1) + ' m/s' : 'N/A';
+                windDirectionEl.textContent = hasWindData ? degreesToCardinal(avgWindDirection) + ' (' + avgWindDirection.toFixed(0) + '°)' : 'N/A';
+            }
         }
     });
 
@@ -465,12 +507,118 @@
     // WEATHER DETAILS PANEL
     // ========================================================================
     
-    let selectedLocation = null;
+    // Popup mode button event handler
+    if (popupModeBtn) {
+        popupModeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering parent click
+            
+            // Check if weather tab is active
+            const weatherTab = document.getElementById('weatherTab');
+            const isWeatherTabActive = weatherTab && weatherTab.classList.contains('active');
+            
+            if (!isWeatherTabActive) {
+                // Don't allow popup mode if not on weather tab
+                return;
+            }
+            
+            popupModeActive = !popupModeActive;
+            popupModeBtn.classList.toggle('active', popupModeActive);
+            
+            if (popupModeActive) {
+                map.getCanvas().style.cursor = 'crosshair';
+            } else {
+                map.getCanvas().style.cursor = '';
+                // Clear all weather popups when toggled off
+                // Use a copy of the array to avoid issues during iteration
+                const popupsToRemove = [...weatherPopups];
+                popupsToRemove.forEach(popup => {
+                    try {
+                        if (popup && popup.isOpen()) {
+                            popup.remove();
+                        }
+                    } catch (e) {
+                        // Silently ignore errors from already-removed popups
+                    }
+                });
+                weatherPopups = [];
+            }
+        });
+    }
+    
+    // Map click handler for popup mode
+    map.on('click', (e) => {
+        // Check if weather tab is active
+        const weatherTab = document.getElementById('weatherTab');
+        const isWeatherTabActive = weatherTab && weatherTab.classList.contains('active');
+        
+        if (popupModeActive && weatherEnabled && weatherHeatmapData.length > 0 && isWeatherTabActive) {
+            const { lng, lat } = e.lngLat;
+            
+            // Find nearest weather point to get data
+            let nearestPoint = null;
+            let minDistance = Infinity;
+            
+            weatherHeatmapData.forEach(point => {
+                const dx = point.lon - lng;
+                const dy = point.lat - lat;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestPoint = point;
+                }
+            });
+            
+            if (nearestPoint) {
+                // Create compact popup with weather information at click location
+                const popup = new mapboxgl.Popup({
+                    closeButton: true,
+                    closeOnClick: false,
+                    className: 'weather-popup',
+                    offset: 10
+                })
+                    .setLngLat([lng, lat])  // Use click location, not nearest point
+                    .setHTML(`
+                        <div style="font-family: 'Space Grotesk', sans-serif; padding: 6px; font-size: 11px;">
+                            <div style="display: flex; flex-direction: column; gap: 3px;">
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Temp:</span>
+                                    <strong>${nearestPoint.temperature.toFixed(1)}°C</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Wind:</span>
+                                    <strong>${nearestPoint.windSpeed !== undefined && nearestPoint.windSpeed !== null ? nearestPoint.windSpeed.toFixed(1) + ' m/s' : 'N/A'}</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Dir:</span>
+                                    <strong>${nearestPoint.windDirection !== undefined && nearestPoint.windDirection !== null ? degreesToCardinal(nearestPoint.windDirection) : 'N/A'}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    `)
+                    .addTo(map);
+                
+                // Store popup reference
+                weatherPopups.push(popup);
+                
+                // Remove popup from array when closed manually
+                popup.on('close', () => {
+                    const index = weatherPopups.indexOf(popup);
+                    if (index > -1) {
+                        weatherPopups.splice(index, 1);
+                    }
+                });
+            }
+        }
+    });
     
     // Open weather details panel
-    // Temperature panel click handler
-    if (temperaturePanel) {
-        temperaturePanel.addEventListener('click', () => {
+    // AccuWeather link click handler - only on info button
+    const accuweatherLink = document.getElementById('accuweatherLink');
+    if (accuweatherLink) {
+        accuweatherLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            
             if (weatherEnabled && weatherHeatmapData.length > 0) {
                 // Get map center coordinates
                 const center = map.getCenter();
@@ -479,59 +627,6 @@
                 window.open(url, '_blank');
             }
         });
-    }
-
-    // Helper to add 3D buildings
-    function add3DBuildingsLayer() {
-        if (map.getLayer('add-3d-buildings')) return;
-
-        const layers = map.getStyle().layers;
-        const labelLayerId = layers.find(
-            (layer) => layer.type === 'symbol' && layer.layout['text-field']
-        )?.id;
-
-        map.addLayer(
-            {
-                'id': 'add-3d-buildings',
-                'source': 'composite',
-                'source-layer': 'building',
-                'filter': ['==', 'extrude', 'true'],
-                'type': 'fill-extrusion',
-                'minzoom': 12,
-                'paint': {
-                    'fill-extrusion-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'height'],
-                        0, '#d4d4d8',
-                        20, '#a1a1aa',
-                        40, '#71717a',
-                        60, '#52525b'
-                    ],
-                    'fill-extrusion-height': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        12,
-                        0,
-                        12.5,
-                        ['get', 'height']
-                    ],
-                    'fill-extrusion-base': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        12,
-                        0,
-                        12.5,
-                        ['get', 'min_height']
-                    ],
-                    'fill-extrusion-opacity': 0.8,
-                    'fill-extrusion-vertical-gradient': true
-                }
-            },
-            labelLayerId
-        );
     }
 
     // ========================================================================
@@ -552,7 +647,22 @@
      */
     map.on('load', () => {
         initDrawControl();
+        updateCompassRotation();
     });
+
+    /**
+     * Update compass rotation based on map bearing
+     */
+    function updateCompassRotation() {
+        const compassOverlay = document.getElementById('compassOverlay');
+        if (compassOverlay) {
+            const bearing = map.getBearing();
+            const svg = compassOverlay.querySelector('svg');
+            if (svg) {
+                svg.style.transform = `rotate(${-bearing}deg)`;
+            }
+        }
+    }
 
     /**
      * Update visualizations on map movement/zoom
@@ -564,6 +674,9 @@
         mapState.zoom = map.getZoom();
         mapState.pitch = map.getPitch();
         mapState.bearing = map.getBearing();
+
+        // Update compass rotation to show true north
+        updateCompassRotation();
 
         // Update heatmap and choropleth visualizations on zoom change to update labels
         if ((currentVizMode === 'heatmap' || currentVizMode === 'chloropleth') && mapState.features.length > 0) {
@@ -745,6 +858,52 @@
     }
 
     // ========================================================================
+    // TAB VISIBILITY MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Update tab visibility based on enabled data sources
+     */
+    function updateTabVisibility() {
+        const transportTab = document.querySelector('.data-tab[data-tab="transport"]');
+        const weatherTab = document.querySelector('.data-tab[data-tab="weather"]');
+        const treesTab = document.querySelector('.data-tab[data-tab="trees"]');
+        
+        // Show/hide tabs based on data source state
+        if (transportTab) {
+            transportTab.style.display = transportEnabled ? 'flex' : 'none';
+        }
+        if (weatherTab) {
+            weatherTab.style.display = weatherEnabled ? 'flex' : 'none';
+        }
+        if (treesTab) {
+            treesTab.style.display = vegetationEnabled ? 'flex' : 'none';
+        }
+        
+        // If current active tab becomes hidden, switch to first visible tab
+        const activeTab = document.querySelector('.data-tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
+            const firstVisibleTab = document.querySelector('.data-tab[style*="flex"]');
+            if (firstVisibleTab) {
+                const tabName = firstVisibleTab.dataset.tab;
+                document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+                firstVisibleTab.classList.add('active');
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(tabName + 'Tab').classList.add('active');
+                
+                // Update popup button state
+                if (popupModeBtn) {
+                    if (tabName === 'weather') {
+                        popupModeBtn.classList.remove('disabled');
+                    } else {
+                        popupModeBtn.classList.add('disabled');
+                    }
+                }
+            }
+        }
+    }
+
+    // ========================================================================
     // VISUALIZATION LAYER CREATORS
     // ========================================================================
     
@@ -913,7 +1072,7 @@
                 [0, 80, 180],          // Navy Blue
                 [0, 50, 150]           // Deep Navy Blue (high grade)
             ],
-            opacity: 0.85,
+            opacity: 0.5,
             aggregation: 'MEAN'
         }));
 
@@ -1597,12 +1756,32 @@
                         bounds: activeBounds
                     };
                     
+                    // Build array of enabled data sources
+                    const enabledSources = [];
+                    if (cityLayersEnabled) enabledSources.push("citylayers");
+                    if (weatherEnabled) enabledSources.push("weather");
+                    if (transportEnabled) enabledSources.push("transport");
+                    if (vegetationEnabled) enabledSources.push("vegetation");
+
+                    // Collect external dataset data to send to LLM
+                    const externalDatasets = {};
+                    if (weatherEnabled && weatherHeatmapData.length > 0) {
+                        externalDatasets.weather = weatherHeatmapData;
+                    }
+                    if (transportEnabled && transportStations.length > 0) {
+                        externalDatasets.transport = transportStations;
+                    }
+                    if (vegetationEnabled && vegetationData.length > 0) {
+                        externalDatasets.vegetation = vegetationData;
+                    }
+
                     const res = await fetch("/chat", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             message: queryMessage,
-                            data_sources: cityLayersEnabled ? ["citylayers"] : [],
+                            data_sources: enabledSources,
+                            external_datasets: externalDatasets,
                             map_context: mapContext,
                             category_filter: selectedCategory !== 'all' ? selectedCategory : null
                         }),
@@ -1754,10 +1933,26 @@
             
             // temperatureValue = small average label
             temperatureValue.textContent = `Avg: ${avgTemp}°C`;
+            
+            // Calculate and display average wind data
+            if (windSpeedEl && windDirectionEl) {
+                const avgWindSpeed = weatherHeatmapData.reduce((sum, p) => sum + (p.windSpeed || 0), 0) / weatherHeatmapData.length;
+                const avgWindDirection = weatherHeatmapData.reduce((sum, p) => sum + (p.windDirection || 0), 0) / weatherHeatmapData.length;
+                
+                // Check if we have valid wind data (not just zeros from defaults)
+                const hasWindData = weatherHeatmapData.some(p => p.windSpeed !== undefined && p.windSpeed !== null);
+                
+                windSpeedEl.textContent = hasWindData ? avgWindSpeed.toFixed(1) + ' m/s' : 'N/A';
+                windDirectionEl.textContent = hasWindData ? degreesToCardinal(avgWindDirection) + ' (' + avgWindDirection.toFixed(0) + '°)' : 'N/A';
+            }
         } else {
             // Reset when weather is disabled
             temperatureHoverInfo.textContent = '--°C';
             temperatureValue.textContent = 'Avg: --°C';
+            if (windSpeedEl && windDirectionEl) {
+                windSpeedEl.textContent = '-- m/s';
+                windDirectionEl.textContent = '--°';
+            }
         }
     }
 
@@ -1871,12 +2066,32 @@
                 zoom: map.getZoom()
             };
 
+            // Build array of enabled data sources
+            const enabledSources = [];
+            if (cityLayersEnabled) enabledSources.push("citylayers");
+            if (weatherEnabled) enabledSources.push("weather");
+            if (transportEnabled) enabledSources.push("transport");
+            if (vegetationEnabled) enabledSources.push("vegetation");
+
+            // Collect external dataset data to send to LLM
+            const externalDatasets = {};
+            if (weatherEnabled && weatherHeatmapData.length > 0) {
+                externalDatasets.weather = weatherHeatmapData;
+            }
+            if (transportEnabled && transportStations.length > 0) {
+                externalDatasets.transport = transportStations;
+            }
+            if (vegetationEnabled && vegetationData.length > 0) {
+                externalDatasets.vegetation = vegetationData;
+            }
+
             const res = await fetch("/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message,
-                    data_sources: cityLayersEnabled ? ["citylayers"] : [],
+                    data_sources: enabledSources,
+                    external_datasets: externalDatasets,
                     map_context: mapContext,
                     category_filter: currentCategory !== 'all' ? currentCategory : null
                 }),
@@ -1918,31 +2133,6 @@
                             fetchWeatherData();
                         }
                     }
-                }
-                
-                // Auto-enable data sources based on backend detection
-                if (data.auto_enabled_sources && data.auto_enabled_sources.length > 0) {
-                    data.auto_enabled_sources.forEach(source => {
-                        if (source === 'weather' && !weatherEnabled) {
-                            weatherEnabled = true;
-                            if (sourceWeather) {
-                                sourceWeather.classList.add('active');
-                            }
-                            fetchWeatherData();
-                        } else if (source === 'transport' && !transportEnabled) {
-                            transportEnabled = true;
-                            if (sourceTransport) {
-                                sourceTransport.classList.add('active');
-                            }
-                            fetchTransportData();
-                        } else if (source === 'vegetation' && !vegetationEnabled) {
-                            vegetationEnabled = true;
-                            if (sourceVegetation) {
-                                sourceVegetation.classList.add('active');
-                            }
-                            fetchVegetationData();
-                        }
-                    });
                 }
 
                 await refreshMapData();
@@ -2503,9 +2693,12 @@
             weatherEnabled = !weatherEnabled;
             sourceWeather.classList.toggle('active', weatherEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
+            
             // Show/hide data panel and switch to weather tab
             if (dataPanel) {
-                if (weatherEnabled || transportEnabled) {
+                if (weatherEnabled || transportEnabled || vegetationEnabled) {
                     dataPanel.classList.remove('hidden');
                     if (weatherEnabled) {
                         // Switch to weather tab
@@ -2513,6 +2706,11 @@
                         document.querySelector('.data-tab[data-tab="weather"]').classList.add('active');
                         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                         document.getElementById('weatherTab').classList.add('active');
+                        
+                        // Update popup button state
+                        if (popupModeBtn) {
+                            popupModeBtn.classList.remove('disabled');
+                        }
                     }
                 } else {
                     dataPanel.classList.add('hidden');
@@ -2538,9 +2736,12 @@
             transportEnabled = !transportEnabled;
             sourceTransport.classList.toggle('active', transportEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
+            
             // Show/hide data panel and switch to transport tab
             if (dataPanel) {
-                if (transportEnabled || weatherEnabled) {
+                if (transportEnabled || weatherEnabled || vegetationEnabled) {
                     dataPanel.classList.remove('hidden');
                     if (transportEnabled) {
                         // Switch to transport tab
@@ -2548,6 +2749,11 @@
                         document.querySelector('.data-tab[data-tab="transport"]').classList.add('active');
                         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                         document.getElementById('transportTab').classList.add('active');
+                        
+                        // Update popup button state
+                        if (popupModeBtn) {
+                            popupModeBtn.classList.add('disabled');
+                        }
                     }
                 } else {
                     dataPanel.classList.add('hidden');
@@ -2585,6 +2791,8 @@
             vegetationEnabled = !vegetationEnabled;
             sourceVegetation.classList.toggle('active', vegetationEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
 
             
             if (vegetationEnabled) {
@@ -2597,6 +2805,11 @@
                     document.querySelector('.data-tab[data-tab="trees"]').classList.add('active');
                     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                     document.getElementById('treesTab').classList.add('active');
+                    
+                    // Update popup button state
+                    if (popupModeBtn) {
+                        popupModeBtn.classList.add('disabled');
+                    }
                 }
             } else {
                 vegetationData = [];
@@ -2608,6 +2821,12 @@
                     map.removeSource('trees-data');
                 }
                 updateTreesPanel();
+                
+                // Hide panel if no other data sources are enabled
+                const dataPanel = document.getElementById('dataPanel');
+                if (dataPanel && !weatherEnabled && !transportEnabled) {
+                    dataPanel.classList.add('hidden');
+                }
             }
         });
     }
@@ -2722,7 +2941,7 @@
         // Filter by selected species
         const filteredData = vegetationData.filter(tree => {
             if (activeSpeciesFilters.size === 0) return true;
-            return activeSpeciesFilters.has(tree.common_name || tree.species || 'Unknown');
+            return !activeSpeciesFilters.has(tree.common_name || tree.species || 'Unknown');
         });
         
         return new deck.ScatterplotLayer({
@@ -2754,17 +2973,37 @@
             onClick: (info) => {
                 if (info.object) {
                     const tree = info.object;
-                    const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
-                        <strong>${tree.common_name || tree.species || 'Unknown Species'}</strong><br>
+                    const treeName = tree.common_name || tree.species || 'Unknown Species';
+                    // Only use scientific name (species) for FloraVeg link
+                    // Remove anything in parentheses (common name) - e.g., "Gleditsia triacanthos (Lederhülsenbaum)" -> "Gleditsia triacanthos"
+                    const scientificName = tree.species ? tree.species.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim() : null;
+                    
+                    // Only show info button if we have a valid scientific name
+                    const infoButton = scientificName && scientificName !== 'Unknown Species'
+                        ? `<div style="position: absolute; bottom: 5px; right: 5px;">
+                            <a href="https://floraveg.eu/taxon/overview/${scientificName.replace(/ /g, '%20')}" 
+                               target="_blank" 
+                               style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: #4CAF50; color: white; text-decoration: none; border-radius: 50%; font-size: 12px; font-weight: bold; font-style: italic; transition: background 0.2s;"
+                               onmouseover="this.style.background='#45a049'" 
+                               onmouseout="this.style.background='#4CAF50'"
+                               title="View detailed botanical information and images on FloraVeg.EU">
+                                i
+                            </a>
+                        </div>`
+                        : '';
+                    
+                    const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 8px 5px 5px 5px; position: relative;">
+                        <strong>${treeName}</strong><br>
                         ${tree.height ? `Height: <b>${tree.height}m</b><br>` : ''}
                         ${tree.crown_diameter ? `Crown: <b>${tree.crown_diameter}m</b><br>` : ''}
                         ${tree.planting_year ? `Planted: <b>${tree.planting_year}</b>` : ''}
+                        ${infoButton}
                     </div>`;
                     
                     new mapboxgl.Popup({ 
                         closeButton: true,
                         closeOnClick: true,
-                        className: 'custom-popup'
+                        className: 'custom-popup tree-popup'
                     })
                         .setLngLat([tree.lon, tree.lat])
                         .setHTML(html)
@@ -2979,11 +3218,44 @@
                 content.classList.remove('active');
             });
             document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // Update popup button state based on tab
+            if (popupModeBtn) {
+                if (tabName === 'weather') {
+                    popupModeBtn.classList.remove('disabled');
+                } else {
+                    popupModeBtn.classList.add('disabled');
+                }
+            }
+            
+            // Disable popup mode when switching away from weather tab
+            if (tabName !== 'weather' && popupModeActive) {
+                popupModeActive = false;
+                if (popupModeBtn) {
+                    popupModeBtn.classList.remove('active');
+                }
+                map.getCanvas().style.cursor = '';
+                // Clear all weather popups
+                const popupsToRemove = [...weatherPopups];
+                popupsToRemove.forEach(popup => {
+                    try {
+                        if (popup && popup.isOpen()) {
+                            popup.remove();
+                        }
+                    } catch (e) {
+                        // Silently ignore errors
+                    }
+                });
+                weatherPopups = [];
+            }
         });
     });
     
     // Initialize category filter with predefined categories
     initializeCategoryFilter();
+    
+    // Initialize tab visibility (hide all tabs initially since no data sources are enabled)
+    updateTabVisibility();
 
     // Initial Data Load
     refreshMapData();

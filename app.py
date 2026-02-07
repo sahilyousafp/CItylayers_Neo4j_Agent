@@ -93,6 +93,141 @@ def _get_category_from_query(query: str) -> str:
     return None
 
 
+def _aggregate_multi_dataset_context(
+    citylayers_records: List[Dict[str, Any]],
+    external_datasets: Dict[str, Any],
+    data_sources: List[str]
+) -> Dict[str, Any]:
+    """
+    Aggregate data from multiple sources into a unified context for the LLM.
+    
+    Args:
+        citylayers_records: Records from Neo4j CityLayers database
+        external_datasets: Dict containing weather, transport, vegetation data
+        data_sources: List of enabled data source names
+    
+    Returns:
+        Dict with aggregated context from all sources
+    """
+    aggregated_context = {
+        "citylayers": {
+            "enabled": "citylayers" in data_sources,
+            "count": len(citylayers_records),
+            "data": citylayers_records[:50] if citylayers_records else []  # Limit to 50 for LLM context
+        },
+        "weather": {
+            "enabled": "weather" in data_sources,
+            "count": 0,
+            "data": []
+        },
+        "transport": {
+            "enabled": "transport" in data_sources,
+            "count": 0,
+            "data": []
+        },
+        "vegetation": {
+            "enabled": "vegetation" in data_sources,
+            "count": 0,
+            "data": []
+        }
+    }
+    
+    # Add weather data if available
+    if "weather" in data_sources and external_datasets.get("weather"):
+        weather_data = external_datasets["weather"]
+        if isinstance(weather_data, list) and len(weather_data) > 0:
+            # Summarize weather data instead of including all points
+            temps = [p.get("temperature", 0) for p in weather_data if "temperature" in p]
+            winds = [p.get("windSpeed", 0) for p in weather_data if "windSpeed" in p]
+            
+            aggregated_context["weather"]["count"] = len(weather_data)
+            aggregated_context["weather"]["data"] = {
+                "summary": {
+                    "avg_temperature": sum(temps) / len(temps) if temps else 0,
+                    "min_temperature": min(temps) if temps else 0,
+                    "max_temperature": max(temps) if temps else 0,
+                    "avg_wind_speed": sum(winds) / len(winds) if winds else 0,
+                    "sample_points": weather_data[:5]  # Include a few sample points
+                }
+            }
+    
+    # Add transport data if available
+    if "transport" in data_sources and external_datasets.get("transport"):
+        transport_data = external_datasets["transport"]
+        if isinstance(transport_data, list) and len(transport_data) > 0:
+            aggregated_context["transport"]["count"] = len(transport_data)
+            aggregated_context["transport"]["data"] = transport_data[:30]  # Limit to 30 stations
+    
+    # Add vegetation data if available
+    if "vegetation" in data_sources and external_datasets.get("vegetation"):
+        vegetation_data = external_datasets["vegetation"]
+        if isinstance(vegetation_data, list) and len(vegetation_data) > 0:
+            aggregated_context["vegetation"]["count"] = len(vegetation_data)
+            # Summarize vegetation by species
+            species_counts = {}
+            for tree in vegetation_data:
+                species = tree.get("species", "Unknown")
+                species_counts[species] = species_counts.get(species, 0) + 1
+            
+            aggregated_context["vegetation"]["data"] = {
+                "summary": {
+                    "total_trees": len(vegetation_data),
+                    "species_diversity": len(species_counts),
+                    "top_species": sorted(species_counts.items(), key=lambda x: x[1], reverse=True)[:10],
+                    "sample_trees": vegetation_data[:10]
+                }
+            }
+    
+    return aggregated_context
+
+
+def _get_category_from_query(query: str) -> str:
+    """
+    Parses a query to find a matching category and returns its ID.
+    Enhanced to detect more natural language patterns.
+    """
+    CATEGORY_MAPPING = {
+        # Beauty (1)
+        'beauty': 1, 'beautiful': 1, 'scenic': 1, 'view': 1, 'views': 1,
+        'aesthetic': 1, 'attractive': 1, 'picturesque': 1, 'stunning': 1,
+        'pretty': 1, 'gorgeous': 1, 'architecture': 1, 'architectural': 1,
+        
+        # Sound (2)
+        'sound': 2, 'noise': 2, 'audio': 2, 'acoustic': 2, 'acoustics': 2,
+        'quiet': 2, 'peaceful': 2, 'loud': 2, 'silent': 2, 'noisy': 2,
+        
+        # Movement (3)
+        'movement': 3, 'transport': 3, 'transportation': 3, 'transit': 3,
+        'mobility': 3, 'traffic': 3, 'pedestrian': 3, 'walkability': 3,
+        'accessible': 3, 'accessibility': 3, 'bike': 3, 'cycling': 3,
+        
+        # Protection (4)
+        'protection': 4, 'safety': 4, 'secure': 4, 'security': 4,
+        'safe': 4, 'crime': 4, 'dangerous': 4, 'risk': 4,
+        
+        # Climate Comfort (5)
+        'climate': 5, 'comfort': 5, 'weather': 5, 'temperature': 5,
+        'comfortable': 5, 'climate comfort': 5, 'hot': 5, 'cold': 5,
+        'shade': 5, 'sunny': 5, 'wind': 5, 'rain': 5,
+        
+        # Activities (6)
+        'activities': 6, 'activity': 6, 'recreation': 6, 'recreational': 6,
+        'parks': 6, 'park': 6, 'leisure': 6, 'entertainment': 6,
+        'things to do': 6, 'fun': 6, 'sports': 6, 'exercise': 6
+    }
+    
+    lower_query = query.lower()
+    
+    # Sort by length (longest first) to match more specific terms first
+    sorted_keywords = sorted(CATEGORY_MAPPING.keys(), key=len, reverse=True)
+    
+    for keyword in sorted_keywords:
+        if keyword in lower_query:
+            return str(CATEGORY_MAPPING[keyword])
+    
+    return None
+
+
 @app.route("/chat", methods=["POST"])
 def chat_endpoint():
     store = get_session_store()
@@ -105,6 +240,9 @@ def chat_endpoint():
     data_sources = payload.get("data_sources", ["citylayers"])
     map_context = payload.get("map_context", {})
     category_filter = payload.get("category_filter")
+    
+    # Collect external dataset data if provided
+    external_datasets = payload.get("external_datasets", {})
     
     if not question:
         return jsonify({"ok": False, "error": "Empty message"}), 400
@@ -164,13 +302,38 @@ def chat_endpoint():
                 print(f"DEBUG: Retrieved {len(context_records)} context_records from Neo4j agent")
                 if len(context_records) > 0:
                     print(f"DEBUG: First context record: {str(context_records[0])[:500]}...")
-                
-                # Enrich answer with online information about locations
-                answer = _enrich_with_online_info(answer, context_records, scraper_agent, bounds)
+        
+        # Aggregate multi-dataset context
+        aggregated_context = _aggregate_multi_dataset_context(
+            citylayers_records=context_records,
+            external_datasets=external_datasets,
+            data_sources=data_sources
+        )
+        
+        print(f"DEBUG: Aggregated context summary:")
+        for source, info in aggregated_context.items():
+            if info["enabled"]:
+                print(f"  - {source}: {info['count']} items")
+        
+        # If multiple datasets are enabled, enhance the answer with cross-dataset analysis
+        if len([s for s in data_sources if aggregated_context[s]["enabled"]]) > 1:
+            # Pass aggregated context to Neo4j agent for cross-dataset analysis
+            enhanced_result = neo4j_agent.process_multi_dataset(
+                query=question,
+                aggregated_context=aggregated_context,
+                chat_history=chat_history
+            )
+            if enhanced_result and enhanced_result.get("ok"):
+                answer = enhanced_result["answer"]
+                print(f"DEBUG: Enhanced answer with multi-dataset analysis")
         
         # If no result yet, return error
         if not result or not result["ok"]:
             return jsonify({"ok": False, "error": "No data available from selected sources"}), 500
+        
+        # Enrich answer with online information about locations (only for citylayers data)
+        if "citylayers" in data_sources and context_records:
+            answer = _enrich_with_online_info(answer, context_records, scraper_agent, bounds)
         
         # Store context for map visualization
         store["last_context_records"] = context_records
@@ -194,8 +357,7 @@ def chat_endpoint():
             "answer": answer,
             "answer_html": answer_html,
             "visualization_recommendation": viz_recommendation,
-            "detected_category_id": detected_category_id,
-            "auto_enabled_sources": auto_enabled_sources
+            "detected_category_id": detected_category_id
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -854,12 +1016,21 @@ def weather_data():
             )
             
             if not result.get("ok") or not result.get("current"):
-
+                print("⚠️ No current weather data from Open-Meteo")
+                print(f"DEBUG: OpenMeteo result: {result}")
                 avg_temp = 15.0  # Default temperature
+                wind_speed = 0.0
+                wind_direction = 0.0
             else:
-                # Get current temperature
+                # Get current temperature and wind data
                 current = result["current"]
+                print(f"DEBUG: OpenMeteo current data: {current}")
                 avg_temp = current.get("temperature", 15.0)
+                wind_speed = current.get("wind_speed", 0.0)
+                wind_direction = current.get("wind_direction", 0.0)
+                print(f"✓ Weather data: temp={avg_temp}°C, wind={wind_speed}m/s @ {wind_direction}°")
+                print(f"DEBUG: wind_speed type: {type(wind_speed)}, value: {wind_speed}")
+                print(f"DEBUG: wind_direction type: {type(wind_direction)}, value: {wind_direction}")
 
             
             # Generate dense interpolated grid for raster-like appearance
@@ -880,10 +1051,20 @@ def weather_data():
                     variation = random.uniform(-1.5, 1.5)
                     temp = avg_temp + variation
                     
+                    # Add small variation to wind speed (±0.5 m/s)
+                    wind_var = random.uniform(-0.5, 0.5)
+                    point_wind_speed = max(0, wind_speed + wind_var)
+                    
+                    # Add small variation to wind direction (±10°)
+                    dir_var = random.uniform(-10, 10)
+                    point_wind_dir = (wind_direction + dir_var) % 360
+                    
                     weather_points.append({
                         "lat": lat,
                         "lon": lon,
                         "temperature": round(temp, 1),
+                        "windSpeed": round(point_wind_speed, 1),
+                        "windDirection": round(point_wind_dir, 0),
                         "value": temp
                     })
             
@@ -894,6 +1075,8 @@ def weather_data():
                 "weather_points": weather_points,
                 "bounds": bounds,
                 "center_temperature": round(avg_temp, 1),
+                "center_wind_speed": round(wind_speed, 1),
+                "center_wind_direction": round(wind_direction, 0),
                 "source": "open-meteo"
             })
             

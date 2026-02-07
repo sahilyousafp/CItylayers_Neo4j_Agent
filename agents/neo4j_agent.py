@@ -141,7 +141,7 @@ Database Results:
    |----------|---------|
    | 📍 **Location** | Full address |
    | 🏷️ **Category** | Category name |
-   | ⭐ **Rating** | X.X out of 10 |
+   | ⭐ **Rating** | XX out of 100 |
    | 📝 **What it's about** | Brief description in simple terms |
    
    - **About this location:** 1-2 sentences explaining what makes it special
@@ -558,6 +558,197 @@ class Neo4jAgent(BaseAgent):
                 "error": str(e),
                 "context_records": [],
             }
+
+    def process_multi_dataset(
+        self,
+        query: str,
+        aggregated_context: Dict[str, Any],
+        chat_history: List[Tuple[str, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Process a query that involves multiple datasets (CityLayers + external sources).
+        Enhances the answer with cross-dataset insights.
+        
+        Args:
+            query: Natural language question
+            aggregated_context: Context from multiple data sources
+            chat_history: Optional conversation history
+            
+        Returns:
+            Dictionary with enhanced answer considering all datasets
+        """
+        try:
+            # Build multi-dataset prompt
+            multi_dataset_prompt = self._build_multi_dataset_prompt(query, aggregated_context)
+            
+            # Enhanced QA template for multi-dataset analysis
+            enhanced_template = """You are a helpful location assistant analyzing data from multiple sources. You have access to:
+
+**Available Data Sources:**
+{data_sources_summary}
+
+**User Question:** {question}
+
+**Data from All Sources:**
+{context}
+
+**Response Guidelines:**
+1. **Identify Relevant Datasets**: Determine which datasets are most relevant to the user's question
+2. **Cross-Dataset Insights**: When multiple datasets are relevant, provide insights that connect them
+   - Example: "Beautiful places near transport stations"
+   - Example: "Parks with good weather conditions"
+   - Example: "Areas with many trees and high beauty ratings"
+3. **Clear Source Attribution**: When mentioning data, indicate which source it comes from
+4. **Prioritize User Intent**: Focus on what the user is actually asking for
+5. **Be Concise**: Don't overload with irrelevant data from unused sources
+
+**Formatting:**
+- Use markdown for structure (headers, tables, bullet points)
+- Include relevant statistics from each dataset
+- Highlight cross-dataset correlations when meaningful
+- Keep tone friendly and accessible for general public
+
+Now provide your analysis:"""
+
+            # Format the prompt
+            formatted_prompt = enhanced_template.format(
+                data_sources_summary=self._format_data_sources_summary(aggregated_context),
+                question=query,
+                context=self._format_multi_dataset_context(aggregated_context)
+            )
+            
+            print(f"DEBUG: Processing multi-dataset query with {len([s for s in aggregated_context.values() if s['enabled']])} enabled sources")
+            
+            # Invoke LLM
+            llm_response = self.llm.invoke(formatted_prompt)
+            answer = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+            
+            # Clean up answer
+            if isinstance(answer, dict) and 'text' in answer:
+                answer = answer['text']
+            elif isinstance(answer, str) and answer.startswith('{'):
+                try:
+                    import json
+                    parsed = json.loads(answer)
+                    if isinstance(parsed, dict) and 'text' in parsed:
+                        answer = parsed['text']
+                except:
+                    pass
+            
+            answer = str(answer).strip()
+            
+            print(f"✅ Multi-dataset analysis complete")
+            
+            return {
+                "ok": True,
+                "answer": answer
+            }
+            
+        except Exception as e:
+            print(f"ERROR in multi-dataset processing: {e}")
+            return {
+                "ok": False,
+                "error": str(e)
+            }
+
+    def _format_data_sources_summary(self, aggregated_context: Dict[str, Any]) -> str:
+        """Format a summary of available data sources."""
+        summary_lines = []
+        for source, info in aggregated_context.items():
+            if info["enabled"]:
+                source_name = source.capitalize()
+                count = info["count"]
+                summary_lines.append(f"- **{source_name}**: {count} records available")
+        return "\n".join(summary_lines) if summary_lines else "No data sources enabled"
+
+    def _format_multi_dataset_context(self, aggregated_context: Dict[str, Any]) -> str:
+        """Format the aggregated context for LLM consumption."""
+        context_parts = []
+        
+        # CityLayers data
+        if aggregated_context["citylayers"]["enabled"] and aggregated_context["citylayers"]["count"] > 0:
+            citylayers_data = aggregated_context["citylayers"]["data"]
+            context_parts.append(f"### CityLayers Database ({len(citylayers_data)} locations)")
+            context_parts.append(self._summarize_citylayers_data(citylayers_data))
+        
+        # Weather data
+        if aggregated_context["weather"]["enabled"] and aggregated_context["weather"]["count"] > 0:
+            weather_data = aggregated_context["weather"]["data"]
+            if isinstance(weather_data, dict) and "summary" in weather_data:
+                summary = weather_data["summary"]
+                context_parts.append(f"\n### Weather Data")
+                context_parts.append(f"- Average Temperature: {summary.get('avg_temperature', 'N/A'):.1f}°C")
+                context_parts.append(f"- Temperature Range: {summary.get('min_temperature', 'N/A'):.1f}°C to {summary.get('max_temperature', 'N/A'):.1f}°C")
+                context_parts.append(f"- Average Wind Speed: {summary.get('avg_wind_speed', 'N/A'):.1f} m/s")
+        
+        # Transport data
+        if aggregated_context["transport"]["enabled"] and aggregated_context["transport"]["count"] > 0:
+            transport_data = aggregated_context["transport"]["data"]
+            context_parts.append(f"\n### Transport Stations ({len(transport_data)} stations)")
+            # Group by type
+            by_type = {}
+            for station in transport_data:
+                station_type = station.get("type", "Unknown")
+                by_type[station_type] = by_type.get(station_type, 0) + 1
+            for stype, count in sorted(by_type.items()):
+                context_parts.append(f"- {stype.capitalize()}: {count} stations")
+        
+        # Vegetation data
+        if aggregated_context["vegetation"]["enabled"] and aggregated_context["vegetation"]["count"] > 0:
+            veg_data = aggregated_context["vegetation"]["data"]
+            if isinstance(veg_data, dict) and "summary" in veg_data:
+                summary = veg_data["summary"]
+                context_parts.append(f"\n### Vegetation Data")
+                context_parts.append(f"- Total Trees: {summary.get('total_trees', 0)}")
+                context_parts.append(f"- Species Diversity: {summary.get('species_diversity', 0)} different species")
+                if "top_species" in summary:
+                    context_parts.append("- Most Common Species:")
+                    for species, count in summary["top_species"][:5]:
+                        context_parts.append(f"  - {species}: {count} trees")
+        
+        return "\n".join(context_parts) if context_parts else "No data available"
+
+    def _summarize_citylayers_data(self, data: List[Dict]) -> str:
+        """Create a concise summary of CityLayers data."""
+        if not data:
+            return "No locations found"
+        
+        # Extract key info
+        locations = []
+        categories = {}
+        grades = []
+        
+        for record in data[:50]:  # Limit to first 50 for summary
+            if "p" in record:
+                place = record["p"]
+                loc = place.get("location", "Unknown")
+                locations.append(loc)
+                
+                if "grade" in place:
+                    try:
+                        grades.append(float(place["grade"]))
+                    except:
+                        pass
+            
+            if "c" in record and record["c"]:
+                cat = record["c"].get("type", record["c"].get("name", "Unknown"))
+                categories[cat] = categories.get(cat, 0) + 1
+        
+        # Build summary
+        summary_parts = []
+        if grades:
+            avg_grade = sum(grades) / len(grades)
+            summary_parts.append(f"- Average Grade: {avg_grade:.1f}/100")
+        
+        if categories:
+            summary_parts.append("- Categories:")
+            for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]:
+                summary_parts.append(f"  - {cat}: {count} locations")
+        
+        if locations:
+            summary_parts.append(f"- Sample Locations: {', '.join(locations[:5])}")
+        
+        return "\n".join(summary_parts) if summary_parts else "Data available"
 
     def _enhance_query_with_history(self, query: str, chat_history: List[Tuple[str, str]]) -> str:
         if chat_history:

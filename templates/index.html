@@ -224,12 +224,30 @@
                             <div class="temperature-header">Temperature</div>
                             <div class="temperature-hover-info">--°C</div>
                             <div class="temperature-value">Avg: --°C</div>
-                            <a href="#" id="accuweatherLink" class="accuweather-link" target="_blank" title="View on AccuWeather">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-                                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
-                                </svg>
-                            </a>
+                            <div class="weather-details">
+                                <div class="weather-detail-item">
+                                    <span class="weather-detail-label">Wind Speed:</span>
+                                    <span id="windSpeed" class="weather-detail-value">-- m/s</span>
+                                </div>
+                                <div class="weather-detail-item">
+                                    <span class="weather-detail-label">Direction:</span>
+                                    <span id="windDirection" class="weather-detail-value">--°</span>
+                                </div>
+                            </div>
+                            <div class="weather-panel-footer">
+                                <button id="popupModeBtn" class="popup-mode-btn" title="Enable popup mode to click on map">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                        <circle cx="12" cy="10" r="3"></circle>
+                                    </svg>
+                                </button>
+                                <a href="#" id="accuweatherLink" class="accuweather-link" target="_blank" title="View on AccuWeather">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                        <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                                    </svg>
+                                </a>
+                            </div>
                         </div>
                     </div>
                     <!-- Trees Tab Content -->
@@ -270,6 +288,27 @@
         <div class="control-icon trash-icon"></div>
     </button>
 </div>
+            <!-- Compass Overlay -->
+            <div id="compassOverlay" class="compass-overlay">
+                <svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer circle -->
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="2" opacity="0.6"/>
+                    <!-- Inner circle -->
+                    <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+                    
+                    <!-- Cardinal directions -->
+                    <text x="50" y="15" text-anchor="middle" font-size="14" font-weight="bold" fill="currentColor">N</text>
+                    <text x="85" y="54" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">E</text>
+                    <text x="50" y="92" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">S</text>
+                    <text x="15" y="54" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor">W</text>
+                    
+                    <!-- North arrow -->
+                    <path d="M 50 10 L 55 30 L 50 25 L 45 30 Z" fill="currentColor" opacity="0.8"/>
+                    
+                    <!-- Center dot -->
+                    <circle cx="50" cy="50" r="3" fill="currentColor" opacity="0.8"/>
+                </svg>
+            </div>
         </div>
     </div>
 
