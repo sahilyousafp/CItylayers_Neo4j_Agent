@@ -1059,9 +1059,9 @@
                 // Higher grade = higher weight = hotter color
                 return Math.max(0.1, grade / 10);
             },
-            radiusPixels: 100,
-            intensity: 1.2,
-            threshold: 0.03,
+            radiusPixels: 40,
+            intensity: 2.0,
+            threshold: 0.15,
             colorRange: [
                 [180, 230, 250],       // Very Pale Blue (low grade)
                 [150, 220, 245],       // Pale Blue
@@ -1086,70 +1086,6 @@
                 ]
             }
         };
-    }
-
-    /**
-     * Create weather heatmap layer showing temperature data as raster
-     * @returns {deck.HeatmapLayer} Weather raster visualization layer
-     */
-    function createWeatherHeatmapLayer() {
-
-        
-        return new deck.HeatmapLayer({
-            id: 'weather-heatmap',
-            data: weatherHeatmapData,
-            getPosition: d => [d.lon, d.lat],
-            getWeight: d => d.value || d.temperature,
-            radiusPixels: 80,      // Smaller radius for finer raster cells
-            intensity: 4.0,        // High intensity for solid colors
-            threshold: 0.005,      // Very low threshold for complete coverage
-            colorRange: [
-                [0, 0, 255],           // Pure Blue (freezing)
-                [0, 128, 255],         // Light Blue (cold)
-                [0, 255, 255],         // Cyan (cool)
-                [0, 255, 0],           // Green (mild)
-                [255, 255, 0],         // Yellow (warm)
-                [255, 128, 0],         // Orange (hot)
-                [255, 0, 0]            // Red (very hot)
-            ],
-            opacity: 0.6,
-            pickable: true,
-            onHover: info => handleWeatherHover(info)
-        });
-    }
-
-    /**
-     * Handle hover over weather heatmap to show local temperature
-     */
-    function handleWeatherHover(info) {
-        if (!temperatureHoverInfo) return;
-        
-        // HeatmapLayer doesn't provide object data, so find nearest point
-        if (info && info.coordinate && weatherHeatmapData.length > 0) {
-            const [lon, lat] = info.coordinate;
-            let nearestPoint = null;
-            let minDistance = Infinity;
-            
-            weatherHeatmapData.forEach(point => {
-                const dx = point.lon - lon;
-                const dy = point.lat - lat;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestPoint = point;
-                }
-            });
-            
-            if (nearestPoint) {
-                temperatureHoverInfo.textContent = `Local: ${nearestPoint.temperature.toFixed(1)}°C`;
-            }
-        } else {
-            // Reset to default text
-            if (weatherEnabled && weatherHeatmapData.length > 0) {
-                temperatureHoverInfo.textContent = 'Hover over map for local temp';
-            }
-        }
     }
 
     function createArcLayers(data, isDrawing) {
