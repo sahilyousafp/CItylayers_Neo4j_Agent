@@ -1528,6 +1528,17 @@
                     if (pending) pending.remove();
                     
                     if (data.ok) {
+                        // Store context records for PDF export
+                        console.log(`DEBUG: Filter response data.context exists: ${!!data.context}`);
+                        if (data.context) {
+                            console.log(`DEBUG: Filter response data.context length: ${data.context.length}`);
+                            console.log(`DEBUG: Filter response data.context sample:`, data.context.slice(0, 2));
+                            lastContextRecords = data.context;
+                            console.log(`DEBUG: Stored ${lastContextRecords.length} context records for PDF export from filter`);
+                        } else {
+                            console.log(`DEBUG: No context in filter response, lastContextRecords will remain empty`);
+                        }
+                        
                         // Display the answer in chat
                         if (data.answer_html) {
                             appendMessageHTML("assistant", data.answer_html);
@@ -1838,9 +1849,14 @@
 
             if (data.ok) {
                 // Store context records for PDF export
+                console.log(`DEBUG: Response data.context exists: ${!!data.context}`);
                 if (data.context) {
+                    console.log(`DEBUG: Response data.context length: ${data.context.length}`);
+                    console.log(`DEBUG: Response data.context sample:`, data.context.slice(0, 2));
                     lastContextRecords = data.context;
                     console.log(`DEBUG: Stored ${lastContextRecords.length} context records for PDF export`);
+                } else {
+                    console.log(`DEBUG: No context in response, lastContextRecords will remain empty`);
                 }
                 
                 if (data.answer_html) {
@@ -3039,7 +3055,7 @@
             return {
                 total_locations: 0,
                 average_rating: 0,
-                top_rated: 'N/A',
+                top_rated: { name: 'N/A', rating: 0 },
                 category_breakdown: {}
             };
         }
@@ -3052,21 +3068,34 @@
         const categoryBreakdown = {};
 
         lastContextRecords.forEach(record => {
-            // Count by category
-            const category = record.c || 'Unknown';
-            categoryBreakdown[category] = (categoryBreakdown[category] || 0) + 1;
+            // Count by category - extract category type
+            let categoryName = 'Unknown';
+            if (record.c) {
+                if (typeof record.c === 'object' && record.c.type) {
+                    categoryName = record.c.type;
+                } else if (typeof record.c === 'string') {
+                    categoryName = record.c;
+                }
+            }
+            categoryBreakdown[categoryName] = (categoryBreakdown[categoryName] || 0) + 1;
 
-            // Calculate average rating
+            // Calculate average rating - extract from pg.grade
             if (record.pg) {
-                const rating = parseFloat(record.pg);
-                if (!isNaN(rating)) {
+                let rating = null;
+                if (typeof record.pg === 'object' && record.pg.grade !== undefined) {
+                    rating = parseFloat(record.pg.grade);
+                } else if (typeof record.pg === 'number') {
+                    rating = parseFloat(record.pg);
+                }
+                
+                if (rating !== null && !isNaN(rating)) {
                     totalRating += rating;
                     ratingCount++;
 
                     // Track top rated
                     if (rating > topRated.rating) {
                         topRated = {
-                            name: record.p?.name || 'Unknown',
+                            name: record.p?.location || record.p?.name || 'Unknown',
                             rating: rating
                         };
                     }
@@ -3076,8 +3105,8 @@
 
         return {
             total_locations: lastContextRecords.length,
-            average_rating: ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : 0,
-            top_rated: `${topRated.name} (${topRated.rating})`,
+            average_rating: ratingCount > 0 ? parseFloat((totalRating / ratingCount).toFixed(1)) : 0,
+            top_rated: topRated,
             category_breakdown: categoryBreakdown
         };
     }
@@ -3127,17 +3156,69 @@
      * Format locations for PDF
      */
     function formatLocationsForPDF() {
+        console.log(`DEBUG formatLocationsForPDF: lastContextRecords exists: ${!!lastContextRecords}`);
+        console.log(`DEBUG formatLocationsForPDF: lastContextRecords length: ${lastContextRecords ? lastContextRecords.length : 0}`);
+        
         if (!lastContextRecords || lastContextRecords.length === 0) {
+            console.log('DEBUG formatLocationsForPDF: Returning empty array');
             return [];
         }
 
-        return lastContextRecords.slice(0, 10).map(record => ({
-            name: record.p?.name || 'Unknown',
-            address: record.precise_address || record.p?.location || 'Address not available',
-            category: record.c || 'Unknown',
-            rating: record.pg ? parseFloat(record.pg).toFixed(1) : 'N/A',
-            comments: Array.isArray(record.co) ? record.co.slice(0, 3) : []
-        }));
+        console.log(`DEBUG formatLocationsForPDF: First record:`, lastContextRecords[0]);
+        
+        return lastContextRecords.slice(0, 20).map(record => {
+            // Extract rating from pg object
+            let rating = 'N/A';
+            if (record.pg) {
+                if (typeof record.pg === 'object' && record.pg.grade !== undefined) {
+                    rating = parseFloat(record.pg.grade).toFixed(1);
+                } else if (typeof record.pg === 'number') {
+                    rating = parseFloat(record.pg).toFixed(1);
+                }
+            }
+            
+            // Extract category name from c object
+            let categoryName = 'Unknown';
+            if (record.c) {
+                if (typeof record.c === 'object' && record.c.type) {
+                    categoryName = record.c.type;
+                } else if (typeof record.c === 'string') {
+                    categoryName = record.c;
+                }
+            }
+            
+            // Extract place name
+            const placeName = record.p?.location || record.p?.name || 'Unknown Location';
+            
+            // Extract comments - handle both array of objects and direct co field
+            let comments = [];
+            if (record.co) {
+                if (Array.isArray(record.co)) {
+                    comments = record.co.map(c => {
+                        if (typeof c === 'object' && c.text) {
+                            return { text: c.text };
+                        } else if (typeof c === 'string') {
+                            return { text: c };
+                        }
+                        return null;
+                    }).filter(c => c !== null);
+                } else if (typeof record.co === 'object' && record.co.text) {
+                    comments = [{ text: record.co.text }];
+                } else if (typeof record.co === 'string') {
+                    comments = [{ text: record.co }];
+                }
+            }
+            
+            console.log(`Location: ${placeName}, Category: ${categoryName}, Rating: ${rating}, Comments: ${comments.length}`);
+            
+            return {
+                name: placeName,
+                address: record.precise_address || record.p?.location || 'Address not available',
+                category: categoryName,
+                rating: rating,
+                comments: comments
+            };
+        });
     }
 
     /**

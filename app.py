@@ -17,6 +17,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Image as RLImage
 from reportlab.lib import colors
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics import renderPDF
 import markdown2
 
 # Import agents
@@ -429,7 +433,9 @@ def _enrich_context_with_addresses(
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", mapbox_token=Config.MAPBOX_ACCESS_TOKEN)
+    import time
+    cache_bust = str(int(time.time()))
+    return render_template("index.html", mapbox_token=Config.MAPBOX_ACCESS_TOKEN, cache_bust=cache_bust)
 
 
 def _get_category_from_query(query: str) -> str:
@@ -753,6 +759,7 @@ def chat_endpoint():
             "ok": True,
             "answer": answer,
             "answer_html": answer_html,
+            "context": context_records,  # Needed for PDF export
             "visualization_recommendation": viz_recommendation,
             "detected_category_id": detected_category_id
         })
@@ -1850,66 +1857,258 @@ def _generate_pdf_report(
     # Container for the 'Flowable' objects
     elements = []
     
-    # Define styles
+    # Define styles - Technical, refined design
     styles = getSampleStyleSheet()
+    
+    # Title style - Bold, clean, technical
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=24,
-        textColor=colors.HexColor('#00bcd4'),
-        spaceAfter=30,
-        alignment=TA_CENTER
+        fontSize=28,
+        textColor=colors.HexColor('#1a1a1a'),
+        fontName='Helvetica-Bold',
+        spaceAfter=8,
+        spaceBefore=0,
+        alignment=TA_LEFT,
+        leading=34
     )
+    
+    # Subtitle style
+    subtitle_style = ParagraphStyle(
+        'SubTitle',
+        parent=styles['Normal'],
+        fontSize=11,
+        textColor=colors.HexColor('#666666'),
+        fontName='Helvetica',
+        spaceAfter=36,
+        spaceBefore=4,
+        alignment=TA_LEFT
+    )
+    
+    # Section heading - Technical hierarchy
     heading_style = ParagraphStyle(
         'CustomHeading',
         parent=styles['Heading2'],
-        fontSize=16,
-        textColor=colors.HexColor('#0097a7'),
-        spaceAfter=12,
-        spaceBefore=12
+        fontSize=14,
+        textColor=colors.HexColor('#000000'),
+        fontName='Helvetica-Bold',
+        spaceAfter=16,
+        spaceBefore=24,
+        borderWidth=0,
+        borderColor=colors.HexColor('#e0e0e0'),
+        borderPadding=0,
+        leading=18
     )
     
-    # 1. Cover Page
-    elements.append(Spacer(1, 2*inch))
-    elements.append(Paragraph(f"<b>City Layers Analysis Report</b>", title_style))
-    elements.append(Spacer(1, 0.5*inch))
-    elements.append(Paragraph(f"<b>{report_title}</b>", styles['Heading2']))
-    elements.append(Spacer(1, 0.3*inch))
-    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-    elements.append(Paragraph(f"Data Sources: {', '.join(data_sources)}", styles['Normal']))
+    # Body text - Improved readability
+    body_style = ParagraphStyle(
+        'TechnicalBody',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.HexColor('#333333'),
+        fontName='Helvetica',
+        leading=15,
+        spaceAfter=8,
+        alignment=TA_LEFT
+    )
+    
+    # Metadata style - Small, subtle
+    meta_style = ParagraphStyle(
+        'Metadata',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#888888'),
+        fontName='Helvetica',
+        leading=12,
+        spaceAfter=4
+    )
+    
+    # Location title style
+    location_title_style = ParagraphStyle(
+        'LocationTitle',
+        parent=styles['Heading3'],
+        fontSize=11,
+        textColor=colors.HexColor('#000000'),
+        fontName='Helvetica-Bold',
+        spaceAfter=6,
+        spaceBefore=16,
+        leading=14
+    )
+    
+    # Sub-heading style
+    sub_heading_style = ParagraphStyle(
+        'SubHeading',
+        parent=styles['Heading3'],
+        fontSize=12,
+        textColor=colors.HexColor('#00bcd4'),
+        fontName='Helvetica-Bold',
+        spaceAfter=8,
+        spaceBefore=16,
+        leading=15
+    )
+    
+    # 1. Cover Page - Clean, technical layout
+    elements.append(Spacer(1, 1.5*inch))
+    
+    # Title with subtle underline
+    elements.append(Paragraph("CITY LAYERS", title_style))
+    elements.append(Paragraph("Analysis Report", subtitle_style))
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # Report details in structured format
+    elements.append(Paragraph(f"<b>{report_title}</b>", body_style))
+    elements.append(Spacer(1, 0.4*inch))
+    
+    # Metadata section
+    meta_data = [
+        ['Report Generated', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+        ['Data Sources', ', '.join(data_sources)],
+        ['Total Locations', str(statistics.get('total_locations', 0))],
+    ]
+    
+    meta_table = Table(meta_data, colWidths=[1.5*inch, 4.5*inch])
+    meta_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#666666')),
+        ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#333333')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(meta_table)
     elements.append(PageBreak())
     
-    # 2. Executive Summary
-    elements.append(Paragraph("<b>Executive Summary</b>", heading_style))
-    summary_text = f"""
-    This report provides comprehensive analysis of {statistics.get('total_locations', 0)} locations
-    across the selected area. The data includes insights from multiple categories with an average rating
-    of {statistics.get('average_rating', 0):.1f} out of 10.
-    """
-    elements.append(Paragraph(summary_text, styles['Normal']))
-    elements.append(Spacer(1, 12))
+    # 2. Executive Summary - Technical format
+    elements.append(Paragraph("Executive Summary", heading_style))
     
-    # 3. Map Visualization
+    # Safely convert average_rating to float
+    avg_rating = statistics.get('average_rating', 0)
+    if isinstance(avg_rating, str):
+        try:
+            avg_rating = float(avg_rating)
+        except:
+            avg_rating = 0.0
+    
+    summary_text = f"""
+    This technical analysis encompasses <b>{statistics.get('total_locations', 0)} locations</b> 
+    across the selected geographic area. The dataset integrates multiple data sources and includes 
+    comprehensive metrics with an average location rating of <b>{avg_rating:.1f} / 10</b>.
+    """
+    elements.append(Paragraph(summary_text, body_style))
+    elements.append(Spacer(1, 20))
+    
+    # 3. Map Visualization - Clean presentation
     if map_screenshot and map_screenshot.startswith('data:image'):
-        elements.append(Paragraph("<b>Map Visualization</b>", heading_style))
+        elements.append(Paragraph("Geographic Visualization", heading_style))
         try:
             # Extract base64 data
             image_data = map_screenshot.split(',')[1]
             image_bytes = base64.b64decode(image_data)
             image_buffer = BytesIO(image_bytes)
             
-            # Add image to PDF
-            img = RLImage(image_buffer, width=5*inch, height=3.5*inch)
-            elements.append(img)
-            elements.append(Spacer(1, 12))
+            # Add image to PDF with border
+            img = RLImage(image_buffer, width=5.5*inch, height=3.8*inch)
+            
+            # Create bordered table for image
+            img_table = Table([[img]], colWidths=[5.5*inch])
+            img_table.setStyle(TableStyle([
+                ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ]))
+            
+            elements.append(img_table)
+            elements.append(Spacer(1, 8))
+            elements.append(Paragraph("<i>Figure 1: Spatial distribution of analyzed locations</i>", meta_style))
         except Exception as e:
             print(f"WARN: Could not embed map screenshot: {e}")
-            elements.append(Paragraph("Map screenshot unavailable", styles['Italic']))
+            elements.append(Paragraph("Geographic visualization unavailable", meta_style))
     
     elements.append(PageBreak())
     
-    # 4. Conversation Log
-    elements.append(Paragraph("<b>Conversation Log</b>", heading_style))
+    # 4. Key Insights from Analysis
+    elements.append(Paragraph("Analysis Summary", heading_style))
+    elements.append(Spacer(1, 12))
+    
+    # Extract the last assistant message which contains the analysis
+    if conversation and len(conversation) > 0:
+        for msg in reversed(conversation):
+            if isinstance(msg, dict) and msg.get('role') == 'assistant':
+                assistant_content = msg.get('content', '')
+                if assistant_content:
+                    # Parse and format the content with better styling
+                    lines = assistant_content.split('\n')
+                    in_list = False
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            if in_list:
+                                elements.append(Spacer(1, 8))
+                                in_list = False
+                            continue
+                        
+                        # Remove emojis and special markdown chars for PDF compatibility  
+                        line = line.encode('ascii', 'ignore').decode('ascii')
+                        line = line.replace('**', '').replace('__', '')
+                        
+                        # Section headers (## Header)
+                        if line.startswith('##'):
+                            line = line.replace('#', '').strip()
+                            elements.append(Spacer(1, 12))
+                            header_para = Paragraph(f"<b>{line}</b>", sub_heading_style)
+                            elements.append(header_para)
+                            elements.append(Spacer(1, 6))
+                            in_list = False
+                        # Bullet points  
+                        elif line.startswith('-') or line.startswith('*'):
+                            line = line.lstrip('-*').strip()
+                            bullet_style = ParagraphStyle(
+                                'BulletPoint',
+                                parent=body_style,
+                                leftIndent=20,
+                                bulletIndent=10,
+                                fontSize=10,
+                                leading=14
+                            )
+                            elements.append(Paragraph(f"• {line}", bullet_style))
+                            in_list = True
+                        # Numbered lists (1. Item)
+                        elif len(line) > 2 and line[0].isdigit() and line[1:3] in ['. ', ') ']:
+                            numbered_style = ParagraphStyle(
+                                'NumberedPoint',
+                                parent=body_style,
+                                leftIndent=20,
+                                fontSize=10,
+                                leading=14
+                            )
+                            elements.append(Paragraph(line, numbered_style))
+                            in_list = True
+                        # Regular paragraphs - skip very short lines (likely fragments)
+                        elif len(line) > 15:
+                            if in_list:
+                                elements.append(Spacer(1, 8))
+                                in_list = False
+                            para_style = ParagraphStyle(
+                                'AnalysisPara',
+                                parent=body_style,
+                                fontSize=10,
+                                leading=15,
+                                spaceAfter=6
+                            )
+                            elements.append(Paragraph(line, para_style))
+                break
+    
+    elements.append(Spacer(1, 12))
+    
+    elements.append(PageBreak())
+    
+    # 5. Conversation Log - Technical formatting (condensed)
+    elements.append(Paragraph("Conversation History", heading_style))
+    elements.append(Paragraph("<i>Recent interaction (condensed)</i>", meta_style))
+    elements.append(Spacer(1, 12))
     
     if conversation and len(conversation) > 0:
         print(f"DEBUG: Processing {len(conversation)} conversation messages for PDF")
@@ -1928,82 +2127,347 @@ def _generate_pdf_report(
                 print(f"WARN: Message {idx} - unexpected type {type(msg)}, skipping")
                 continue
             
-            # Truncate long content
-            if len(content) > 500:
-                content = content[:500] + "..."
+            # Truncate very long content for conversation log
+            if len(content) > 200:
+                content = content[:200] + "..."
             
             # Clean content for PDF (remove special characters that break reportlab)
             content = content.replace('<', '&lt;').replace('>', '&gt;').replace('#', '').replace('*', '').replace('_', '')
             
+            # Create message with visual separation
             if role == 'user':
-                p = Paragraph(f"<b>User:</b> {content}", styles['Normal'])
+                msg_style = ParagraphStyle(
+                    'UserMessage',
+                    parent=body_style,
+                    leftIndent=0,
+                    fontName='Helvetica-Bold',
+                    fontSize=9
+                )
+                p = Paragraph(f"<b>USER:</b> {content}", msg_style)
             else:
-                p = Paragraph(f"<i>Assistant:</i> {content}", styles['Normal'])
+                msg_style = ParagraphStyle(
+                    'AssistantMessage',
+                    parent=body_style,
+                    leftIndent=24,
+                    fontSize=9,
+                    textColor=colors.HexColor('#555555')
+                )
+                p = Paragraph(f"ASSISTANT: {content}", msg_style)
+            
             elements.append(p)
-            elements.append(Spacer(1, 0.1 * inch))
+            elements.append(Spacer(1, 10))
     else:
         print(f"DEBUG: No conversation history available for PDF")
-        elements.append(Paragraph("No conversation history available.", styles['Normal']))
+        elements.append(Paragraph("No conversation history available.", meta_style))
     
     elements.append(PageBreak())
     
-    # 5. Statistics Table
-    elements.append(Paragraph("<b>Data Insights</b>", heading_style))
+    # 6. Statistics Table - Technical, grid-based design
+    elements.append(Paragraph("Data Insights", heading_style))
+    
+    top_rated = statistics.get('top_rated', {}) if isinstance(statistics, dict) else {}
+    top_rated_name = top_rated.get('name', 'N/A') if isinstance(top_rated, dict) else 'N/A'
+    top_rated_rating = top_rated.get('rating', 0) if isinstance(top_rated, dict) else 0
+    
+    # Safely format average rating
+    avg_rating_val = statistics.get('average_rating', 0)
+    if isinstance(avg_rating_val, str):
+        try:
+            avg_rating_val = float(avg_rating_val)
+        except:
+            avg_rating_val = 0.0
     
     stats_data = [
-        ['Metric', 'Value'],
+        ['METRIC', 'VALUE'],
         ['Total Locations', str(statistics.get('total_locations', 0))],
-        ['Average Rating', f"{statistics.get('average_rating', 0):.1f} / 10"],
-        ['Top Rated Location', statistics.get('top_rated', {}).get('name', 'N/A')],
-        ['Top Rating', f"{statistics.get('top_rated', {}).get('rating', 0):.1f}"],
+        ['Average Rating', f"{avg_rating_val:.1f} / 10"],
+        ['Top Rated Location', top_rated_name],
+        ['Top Rating', f"{top_rated_rating:.1f} / 10"],
     ]
     
-    stats_table = Table(stats_data, colWidths=[3*inch, 3*inch])
+    # Add category breakdown
+    category_breakdown = statistics.get('category_breakdown', {})
+    if category_breakdown:
+        elements.append(Spacer(1, 20))
+        elements.append(Paragraph("Category Distribution", sub_heading_style))
+        elements.append(Spacer(1, 8))
+        
+        cat_data = [['CATEGORY', 'COUNT', 'PERCENTAGE']]
+        total = sum(category_breakdown.values())
+        for cat, count in sorted(category_breakdown.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total * 100) if total > 0 else 0
+            cat_data.append([str(cat), str(count), f"{percentage:.1f}%"])
+        
+        cat_table = Table(cat_data, colWidths=[2.5*inch, 1.5*inch, 1.5*inch])
+        cat_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00bcd4')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+        ]))
+        elements.append(cat_table)
+        
+        # Add category distribution chart (pie chart) - only if multiple categories
+        if len(category_breakdown) > 1 and len(category_breakdown) <= 6:
+            elements.append(Spacer(1, 20))
+            try:
+                drawing = Drawing(400, 200)
+                pie = Pie()
+                pie.x = 90
+                pie.y = 40
+                pie.width = 150
+                pie.height = 150
+                pie.data = list(category_breakdown.values())
+                pie.labels = list(category_breakdown.keys())
+                pie.slices.strokeWidth = 0.5
+                
+                # Color palette
+                chart_colors = [
+                    colors.HexColor('#00bcd4'),
+                    colors.HexColor('#ff9800'),
+                    colors.HexColor('#4caf50'),
+                    colors.HexColor('#e91e63'),
+                    colors.HexColor('#9c27b0'),
+                    colors.HexColor('#3f51b5'),
+                ]
+                for i, slice in enumerate(pie.slices):
+                    slice.fillColor = chart_colors[i % len(chart_colors)]
+                
+                drawing.add(pie)
+                elements.append(drawing)
+                elements.append(Spacer(1, 8))
+                elements.append(Paragraph("<i>Figure 2: Category distribution</i>", meta_style))
+            except Exception as e:
+                print(f"WARN: Could not generate pie chart: {e}")
+        
+        elements.append(Spacer(1, 20))
+    
+    # Rating Distribution Analysis with Bar Chart
+    if locations and len(locations) > 0:
+        elements.append(Paragraph("Rating Distribution", sub_heading_style))
+        elements.append(Spacer(1, 12))
+        
+        # Calculate rating distribution
+        rating_buckets = {'0-2': 0, '2-4': 0, '4-6': 0, '6-8': 0, '8-10': 0}
+        for loc in locations:
+            rating = loc.get('rating', 0)
+            if isinstance(rating, str):
+                try:
+                    rating = float(rating)
+                except:
+                    continue
+            else:
+                rating = float(rating) if rating != 'N/A' else 0
+            
+            if rating <= 20:
+                rating_buckets['0-2'] += 1
+            elif rating <= 40:
+                rating_buckets['2-4'] += 1
+            elif rating <= 60:
+                rating_buckets['4-6'] += 1
+            elif rating <= 80:
+                rating_buckets['6-8'] += 1
+            else:
+                rating_buckets['8-10'] += 1
+        
+        # Rating distribution table
+        rating_data = [['RATING RANGE', 'COUNT', 'PERCENTAGE']]
+        total_rated = sum(rating_buckets.values())
+        for range_label, count in rating_buckets.items():
+            percentage = (count / total_rated * 100) if total_rated > 0 else 0
+            rating_data.append([range_label, str(count), f"{percentage:.1f}%"])
+        
+        rating_table = Table(rating_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
+        rating_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#ff9800')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#fff3e0')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+        ]))
+        elements.append(rating_table)
+        elements.append(Spacer(1, 20))
+        
+        # Bar Chart for Rating Distribution
+        try:
+            drawing = Drawing(400, 200)
+            bc = VerticalBarChart()
+            bc.x = 50
+            bc.y = 30
+            bc.height = 150
+            bc.width = 300
+            bc.data = [list(rating_buckets.values())]
+            bc.categoryAxis.categoryNames = list(rating_buckets.keys())
+            bc.categoryAxis.labels.angle = 0
+            bc.categoryAxis.labels.fontSize = 8
+            bc.valueAxis.valueMin = 0
+            bc.valueAxis.valueMax = max(rating_buckets.values()) * 1.2 if max(rating_buckets.values()) > 0 else 10
+            bc.bars[0].fillColor = colors.HexColor('#ff9800')
+            
+            drawing.add(bc)
+            elements.append(drawing)
+            elements.append(Spacer(1, 8))
+            elements.append(Paragraph("<i>Figure 3: Rating distribution bar chart</i>", meta_style))
+        except Exception as e:
+            print(f"WARN: Could not generate bar chart: {e}")
+    
+    stats_table = Table(stats_data, colWidths=[2.5*inch, 3.5*inch])
     stats_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00bcd4')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        # Header row
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f5f5f5')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#333333')),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
+        
+        # Data rows
+        ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 1), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('TEXTCOLOR', (0, 1), (0, -1), colors.HexColor('#666666')),
+        ('TEXTCOLOR', (1, 1), (1, -1), colors.HexColor('#000000')),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 8),
+        
+        # Grid
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
     ]))
     
     elements.append(stats_table)
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 20))
     
-    # 6. Top Locations
+    # 7. Top Locations - Clean, structured layout
     elements.append(PageBreak())
-    elements.append(Paragraph("<b>Top Locations (Top 10)</b>", heading_style))
+    elements.append(Paragraph("Top Locations", heading_style))
+    elements.append(Paragraph("<i>Ranked by rating (top locations displayed)</i>", meta_style))
+    elements.append(Spacer(1, 16))
     
     print(f"DEBUG: Processing {len(locations)} locations for PDF")
-    for i, loc in enumerate(locations[:10], 1):
-        # Safety check: ensure loc is a dict
-        if not isinstance(loc, dict):
-            print(f"WARN: Location {i} is {type(loc)}, skipping")
-            continue
+    
+    if len(locations) == 0:
+        # Add message when no locations are available
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph("No location data available for this query.", body_style))
+        elements.append(Spacer(1, 8))
+        elements.append(Paragraph("<b>Possible reasons:</b>", body_style))
+        elements.append(Paragraph("• The map area doesn't contain locations matching your filter", body_style))
+        elements.append(Paragraph("• The category filter returned no results", body_style))
+        elements.append(Paragraph("• Try adjusting the map view or removing filters", body_style))
+        elements.append(Spacer(1, 12))
+    else:
+        # Group locations by place_id to remove duplicates
+        seen_places = set()
+        unique_locations = []
+        for loc in locations:
+            place_key = f"{loc.get('name')}_{loc.get('address')}"
+            if place_key not in seen_places:
+                seen_places.add(place_key)
+                unique_locations.append(loc)
         
-        print(f"DEBUG: Location {i} - name: {loc.get('name', 'Unknown')}")
+        print(f"DEBUG: Filtered to {len(unique_locations)} unique locations from {len(locations)}")
         
-        elements.append(Paragraph(f"<b>{i}. {loc.get('name', 'Unknown')}</b>", styles['Heading3']))
-        elements.append(Paragraph(f"Address: {loc.get('precise_address', 'N/A')}", styles['Normal']))
-        elements.append(Paragraph(f"Category: {loc.get('category', 'N/A')} | Rating: {loc.get('grade', 0):.1f}/10", styles['Normal']))
-        
-        # Add top comment
-        comments = loc.get('comments', [])
-        if isinstance(comments, list) and len(comments) > 0:
-            top_comment = comments[0]
-            if isinstance(top_comment, dict):
-                comment_text = str(top_comment.get('text', ''))[:200]
-                elements.append(Paragraph(f"<i>Comment: {comment_text}...</i>", styles['Normal']))
+        # Limit to top 15 for faster generation
+        for i, loc in enumerate(unique_locations[:15], 1):
+            # Safety check: ensure loc is a dict
+            if not isinstance(loc, dict):
+                print(f"WARN: Location {i} is {type(loc)}, skipping")
+                continue
+            
+            print(f"DEBUG: Location {i} - name: {loc.get('name', 'Unknown')}, comments: {len(loc.get('comments', []))}")
+            
+            # Location number and name
+            elements.append(Paragraph(f"{i}. {loc.get('name', 'Unknown')}", location_title_style))
+            
+            # Address
+            address_style = ParagraphStyle(
+                'Address',
+                parent=body_style,
+                fontSize=9,
+                textColor=colors.HexColor('#666666'),
+                leftIndent=12
+            )
+            elements.append(Paragraph(f"{loc.get('address', loc.get('precise_address', 'Address not available'))}", address_style))
+            
+            # Category and rating in a structured format
+            rating = loc.get('rating', loc.get('grade', 0))
+            if isinstance(rating, str):
+                rating_display = rating
             else:
-                print(f"WARN: Comment is {type(top_comment)}, not dict")
-        
-        elements.append(Spacer(1, 12))
-            elements.append(Paragraph(f"💬 \"{comment_text}...\"", styles['Italic']))
-        
-        elements.append(Spacer(1, 12))
+                rating_display = f"{float(rating):.1f} / 10"
+            
+            detail_data = [
+                ['Category', loc.get('category', 'N/A')],
+                ['Rating', rating_display]
+            ]
+            
+            detail_table = Table(detail_data, colWidths=[0.8*inch, 4.7*inch])
+            detail_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#888888')),
+                ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#333333')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 12),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ]))
+            elements.append(detail_table)
+            
+            # Add top comment if available
+            comments = loc.get('comments', [])
+            if isinstance(comments, list) and len(comments) > 0:
+                top_comment = comments[0]
+                if isinstance(top_comment, dict):
+                    comment_text = str(top_comment.get('text', ''))[:200]
+                elif isinstance(top_comment, str):
+                    comment_text = top_comment[:200]
+                else:
+                    comment_text = None
+                
+                if comment_text:
+                    comment_style = ParagraphStyle(
+                        'Comment',
+                        parent=body_style,
+                        fontSize=9,
+                        textColor=colors.HexColor('#555555'),
+                        leftIndent=12,
+                        fontName='Helvetica-Oblique',
+                        leading=13
+                    )
+                    elements.append(Spacer(1, 4))
+                    elements.append(Paragraph(f'"{comment_text}..."', comment_style))
+            
+            # Separator between locations
+            elements.append(Spacer(1, 16))
+            
+            # Add subtle divider line (except for last item)
+            if i < min(len(locations), 10):
+                line_table = Table([['']], colWidths=[6*inch], rowHeights=[1])
+                line_table.setStyle(TableStyle([
+                    ('LINEABOVE', (0, 0), (-1, 0), 0.5, colors.HexColor('#e0e0e0')),
+                ]))
+                elements.append(line_table)
+                elements.append(Spacer(1, 12))
     
     # Build PDF
     doc.build(elements)
@@ -2078,6 +2542,16 @@ def export_pdf():
         import traceback
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.after_request
+def add_header(response):
+    """Disable caching for static files during development."""
+    if request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+    return response
 
 
 if __name__ == "__main__":
