@@ -1886,21 +1886,40 @@ def _generate_pdf_report(
     
     # 4. Conversation Log
     elements.append(Paragraph("<b>Conversation Log</b>", heading_style))
-    for msg in conversation[-10:]:  # Last 10 messages
-        msg_type = msg.get('type', 'user')
-        msg_text = msg.get('message', '')
-        timestamp = msg.get('timestamp', '')
-        
-        if msg_type == 'user':
-            elements.append(Paragraph(f"<b>User ({timestamp}):</b>", styles['Normal']))
-            elements.append(Paragraph(msg_text, styles['Normal']))
-        else:
-            elements.append(Paragraph(f"<b>Assistant ({timestamp}):</b>", styles['Normal']))
-            # Convert markdown to plain text (simplified)
-            plain_text = msg_text.replace('#', '').replace('*', '').replace('_', '')[:500]
-            elements.append(Paragraph(plain_text, styles['Normal']))
-        
-        elements.append(Spacer(1, 8))
+    
+    if conversation and len(conversation) > 0:
+        print(f"DEBUG: Processing {len(conversation)} conversation messages for PDF")
+        for idx, msg in enumerate(conversation[-10:]):  # Last 10 messages
+            # Handle both dict and string messages
+            if isinstance(msg, dict):
+                role = msg.get('role', msg.get('type', 'unknown'))
+                content = msg.get('content', msg.get('message', ''))
+                print(f"DEBUG: Message {idx} - dict with role={role}, content length={len(content)}")
+            elif isinstance(msg, str):
+                # If message is a string, treat it as user message
+                role = 'user'
+                content = msg
+                print(f"DEBUG: Message {idx} - string, treating as user message")
+            else:
+                print(f"WARN: Message {idx} - unexpected type {type(msg)}, skipping")
+                continue
+            
+            # Truncate long content
+            if len(content) > 500:
+                content = content[:500] + "..."
+            
+            # Clean content for PDF (remove special characters that break reportlab)
+            content = content.replace('<', '&lt;').replace('>', '&gt;').replace('#', '').replace('*', '').replace('_', '')
+            
+            if role == 'user':
+                p = Paragraph(f"<b>User:</b> {content}", styles['Normal'])
+            else:
+                p = Paragraph(f"<i>Assistant:</i> {content}", styles['Normal'])
+            elements.append(p)
+            elements.append(Spacer(1, 0.1 * inch))
+    else:
+        print(f"DEBUG: No conversation history available for PDF")
+        elements.append(Paragraph("No conversation history available.", styles['Normal']))
     
     elements.append(PageBreak())
     
@@ -1965,6 +1984,17 @@ def export_pdf():
     try:
         payload = request.get_json() or {}
         
+        # Debug logging
+        print(f"DEBUG: Received PDF export request")
+        print(f"DEBUG: Payload keys: {list(payload.keys())}")
+        print(f"DEBUG: Conversation type: {type(payload.get('conversation'))}")
+        if payload.get('conversation'):
+            conv = payload['conversation']
+            print(f"DEBUG: Conversation length: {len(conv)}")
+            if len(conv) > 0:
+                print(f"DEBUG: First message type: {type(conv[0])}")
+                print(f"DEBUG: First message: {str(conv[0])[:200]}")
+        
         # Extract data from payload
         conversation = payload.get("conversation", [])
         map_screenshot = payload.get("map_screenshot", "")
@@ -2007,6 +2037,8 @@ def export_pdf():
         
     except Exception as e:
         print(f"ERROR: PDF generation failed: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
