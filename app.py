@@ -1805,22 +1805,24 @@ def _inject_geolocation_into_tables(html: str, context_records: List[Dict[str, A
 
 def _generate_pdf_report(
     conversation: List[Dict[str, Any]],
-    map_screenshot: str,
+    map_screenshots: Dict[str, str],
     locations: List[Dict[str, Any]],
     statistics: Dict[str, Any],
     data_sources: List[str],
-    report_title: str
+    report_title: str,
+    map_screenshot: str = ""  # Backward compatibility
 ) -> bytes:
     """
     Generate PDF report using reportlab.
     
     Args:
         conversation: List of chat messages
-        map_screenshot: Base64 encoded map screenshot
+        map_screenshots: Dict of base64 encoded screenshots for all visualization modes
         locations: List of location data
         statistics: Statistics dict
         data_sources: Enabled data sources
         report_title: Title for the report
+        map_screenshot: Fallback single screenshot (backward compatibility)
         
     Returns:
         PDF bytes
@@ -1828,6 +1830,7 @@ def _generate_pdf_report(
     # Debug input types
     print(f"DEBUG _generate_pdf_report() called:")
     print(f"  - conversation type: {type(conversation)}, length: {len(conversation) if isinstance(conversation, list) else 'N/A'}")
+    print(f"  - map_screenshots type: {type(map_screenshots)}, modes: {list(map_screenshots.keys()) if isinstance(map_screenshots, dict) else 'N/A'}")
     print(f"  - map_screenshot type: {type(map_screenshot)}, length: {len(map_screenshot) if isinstance(map_screenshot, str) else 'N/A'}")
     print(f"  - locations type: {type(locations)}, length: {len(locations) if isinstance(locations, list) else 'N/A'}")
     print(f"  - statistics type: {type(statistics)}, value: {statistics}")
@@ -2001,40 +2004,90 @@ def _generate_pdf_report(
     elements.append(Spacer(1, 20))
     
     # 3. Map Visualization - Clean presentation
-    elements.append(Paragraph("Geographic Visualization", heading_style))
+    # ==========================================
+    # 4. GEOGRAPHIC VISUALIZATIONS (All 4 Modes)
+    # ==========================================
+    elements.append(PageBreak())
+    elements.append(Paragraph("Geographic Visualizations", heading_style))
+    elements.append(Paragraph("Complete spatial analysis showing all visualization modes with their unique perspectives on the data", meta_style))
+    elements.append(Spacer(1, 12))
     
-    if map_screenshot and map_screenshot.startswith('data:image'):
-        try:
-            print(f"DEBUG: Map screenshot data length: {len(map_screenshot)}")
-            # Extract base64 data
-            image_data = map_screenshot.split(',')[1]
-            image_bytes = base64.b64decode(image_data)
-            image_buffer = BytesIO(image_bytes)
-            print(f"DEBUG: Decoded image bytes: {len(image_bytes)}")
-            
-            # Add image to PDF with border
-            img = RLImage(image_buffer, width=5.5*inch, height=3.8*inch)
-            
-            # Create bordered table for image
-            img_table = Table([[img]], colWidths=[5.5*inch])
-            img_table.setStyle(TableStyle([
-                ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ]))
-            
-            elements.append(img_table)
+    # Define visualization modes and their descriptions
+    viz_modes = [
+        ('mapbox', 'Marker View', 'Individual location markers showing precise point data'),
+        ('scatter', 'Scatter Plot', 'Density-based scatter visualization revealing spatial patterns'),
+        ('heatmap', 'Heat Map', 'Intensity-based heat map highlighting concentration areas'),
+        ('chloropleth', 'Choropleth Map', 'Grid-based aggregation showing regional distributions')
+    ]
+    
+    figure_num = 1
+    for mode_key, mode_title, mode_description in viz_modes:
+        screenshot = map_screenshots.get(mode_key, '')
+        
+        # Fallback to single screenshot if mode-specific not available
+        if not screenshot and mode_key == 'mapbox' and map_screenshot:
+            screenshot = map_screenshot
+        
+        if screenshot and screenshot.startswith('data:image'):
+            try:
+                print(f"DEBUG: Adding {mode_title} screenshot (length: {len(screenshot)})")
+                
+                # Add mode section header
+                mode_header_style = ParagraphStyle(
+                    'ModeHeader',
+                    parent=sub_heading_style,
+                    fontSize=11,
+                    textColor=colors.HexColor('#00bcd4'),
+                    spaceAfter=4
+                )
+                elements.append(Paragraph(f"{mode_title}", mode_header_style))
+                elements.append(Paragraph(mode_description, meta_style))
+                elements.append(Spacer(1, 6))
+                
+                # Extract base64 data
+                image_data = screenshot.split(',')[1]
+                image_bytes = base64.b64decode(image_data)
+                image_buffer = BytesIO(image_bytes)
+                
+                # Add image with border
+                img = RLImage(image_buffer, width=6*inch, height=4*inch)
+                img_table = Table([[img]], colWidths=[6*inch])
+                img_table.setStyle(TableStyle([
+                    ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#00bcd4')),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                
+                elements.append(img_table)
+                elements.append(Spacer(1, 6))
+                
+                caption_style = ParagraphStyle(
+                    'Caption',
+                    parent=meta_style,
+                    fontSize=9,
+                    textColor=colors.HexColor('#555555'),
+                    fontName='Helvetica-Oblique',
+                    alignment=TA_CENTER
+                )
+                elements.append(Paragraph(f"<i>Figure {figure_num}: {mode_title} - {mode_description}</i>", caption_style))
+                elements.append(Spacer(1, 16))
+                print(f"DEBUG: {mode_title} screenshot embedded successfully")
+                figure_num += 1
+            except Exception as e:
+                print(f"ERROR: Could not embed {mode_title} screenshot: {e}")
+                import traceback
+                traceback.print_exc()
+                elements.append(Paragraph(f"⚠ {mode_title} visualization unavailable: {str(e)}", meta_style))
+                elements.append(Spacer(1, 8))
+        else:
+            print(f"WARN: {mode_title} screenshot not provided or invalid format")
+            elements.append(Paragraph(f"⚠ {mode_title} visualization unavailable", meta_style))
             elements.append(Spacer(1, 8))
-            elements.append(Paragraph("<i>Figure 1: Spatial distribution of analyzed locations</i>", meta_style))
-            print(f"DEBUG: Map screenshot embedded successfully")
-        except Exception as e:
-            print(f"ERROR: Could not embed map screenshot: {e}")
-            import traceback
-            traceback.print_exc()
-            elements.append(Paragraph(f"Geographic visualization unavailable: {str(e)}", meta_style))
-    else:
-        print(f"WARN: Map screenshot not provided or invalid format")
-        elements.append(Paragraph("Geographic visualization unavailable - no map screenshot provided", meta_style))
+
     
     elements.append(Spacer(1, 12))
     
@@ -2512,18 +2565,21 @@ def export_pdf():
         
         # Extract data from payload
         conversation = payload.get("conversation", [])
-        map_screenshot = payload.get("map_screenshot", "")
+        map_screenshots = payload.get("map_screenshots", {})  # Dictionary of all 4 visualization modes
+        map_screenshot = payload.get("map_screenshot", "")  # Backward compatibility
         locations = payload.get("locations", [])
         statistics = payload.get("statistics", {})
         data_sources = payload.get("data_sources", ["citylayers"])
         report_title = payload.get("report_title", "Location Analysis")
         
         print(f"DEBUG: Generating PDF report with {len(locations)} locations")
+        print(f"DEBUG: Map screenshots received: {list(map_screenshots.keys()) if map_screenshots else 'None'}")
         
-        # Generate PDF
+        # Generate PDF with all visualizations
         pdf_bytes = _generate_pdf_report(
             conversation=conversation,
-            map_screenshot=map_screenshot,
+            map_screenshots=map_screenshots,
+            map_screenshot=map_screenshot,  # Fallback
             locations=locations,
             statistics=statistics,
             data_sources=data_sources,

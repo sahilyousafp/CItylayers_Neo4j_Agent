@@ -3038,14 +3038,81 @@
      */
     function captureMapScreenshot() {
         try {
-            // Wait a bit for map to fully render
+            console.log('DEBUG: Capturing map screenshot...');
+            console.log('DEBUG: Current viz mode:', currentVizMode);
+            console.log('DEBUG: Markers visible:', document.querySelectorAll('.mapboxgl-marker').length);
+            
+            // Force map to resize and render fully
             map.resize();
+            
+            // Small delay to ensure rendering is complete
+            setTimeout(() => {}, 100);
+            
             const canvas = map.getCanvas();
-            return canvas.toDataURL('image/png', 0.95); // 95% quality
+            const dataUrl = canvas.toDataURL('image/png', 0.95); // 95% quality
+            
+            console.log('DEBUG: Map screenshot captured, data length:', dataUrl.length);
+            return dataUrl;
         } catch (error) {
             console.error('Failed to capture map screenshot:', error);
             return null;
         }
+    }
+    
+    /**
+     * Capture all 4 visualization modes automatically
+     */
+    async function captureAllVisualizationModes() {
+        const screenshots = {};
+        const originalMode = currentVizMode;
+        const modes = ['mapbox', 'scatter', 'heatmap', 'chloropleth'];
+        
+        console.log('DEBUG: Capturing all visualization modes...');
+        
+        for (const mode of modes) {
+            try {
+                console.log(`DEBUG: Switching to ${mode} mode...`);
+                
+                // Switch to the mode
+                setVizMode(mode);
+                
+                // Wait for rendering to complete
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Force render
+                map.resize();
+                if (mode === 'mapbox') {
+                    renderMapboxMarkers();
+                } else {
+                    updateDeckLayers();
+                }
+                
+                // Wait a bit more for deck.gl to render
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Capture screenshot
+                const canvas = map.getCanvas();
+                const screenshot = canvas.toDataURL('image/png', 0.90);
+                screenshots[mode] = screenshot;
+                
+                console.log(`DEBUG: Captured ${mode} screenshot, length: ${screenshot.length}`);
+            } catch (error) {
+                console.error(`Failed to capture ${mode} screenshot:`, error);
+                screenshots[mode] = null;
+            }
+        }
+        
+        // Restore original mode
+        console.log(`DEBUG: Restoring original mode: ${originalMode}`);
+        setVizMode(originalMode);
+        if (originalMode === 'mapbox') {
+            renderMapboxMarkers();
+        } else {
+            updateDeckLayers();
+        }
+        
+        console.log('DEBUG: All visualization modes captured');
+        return screenshots;
     }
     
     /**
@@ -3249,25 +3316,29 @@
         // Disable button during export
         const originalText = buttonElement.innerHTML;
         buttonElement.disabled = true;
-        buttonElement.innerHTML = '⏳ Generating...';
+        buttonElement.innerHTML = '⏳ Capturing visualizations...';
 
         try {
-            // Capture map screenshot
-            const mapScreenshot = captureMapScreenshot();
-            if (!mapScreenshot) {
-                throw new Error('Failed to capture map screenshot');
+            // Capture ALL 4 visualization modes
+            buttonElement.innerHTML = '⏳ Capturing all map views...';
+            const allScreenshots = await captureAllVisualizationModes();
+            
+            if (!allScreenshots || Object.keys(allScreenshots).length === 0) {
+                throw new Error('Failed to capture map visualizations');
             }
 
             // Collect data
+            buttonElement.innerHTML = '⏳ Collecting data...';
             const statistics = calculateStatistics();
             const conversation = getConversationHistory();
             const dataSources = getEnabledDataSources();
             const locations = formatLocationsForPDF();
 
-            // Prepare export payload
+            // Prepare export payload with all screenshots
+            buttonElement.innerHTML = '⏳ Generating PDF...';
             const exportPayload = {
                 conversation: conversation,
-                map_screenshot: mapScreenshot,
+                map_screenshots: allScreenshots,  // All 4 visualization screenshots
                 locations: locations,
                 statistics: statistics,
                 data_sources: dataSources,
