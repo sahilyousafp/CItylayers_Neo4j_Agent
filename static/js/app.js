@@ -3096,13 +3096,19 @@
                     content: msg.textContent.trim()
                 });
             } else if (msg.classList.contains('assistant')) {
+                // Remove the "Download Report" button text from content
+                const clone = msg.cloneNode(true);
+                const btn = clone.querySelector('.message-export-btn');
+                if (btn) btn.remove();
+                
                 conversation.push({
                     role: 'assistant',
-                    content: msg.textContent.trim()
+                    content: clone.textContent.trim()
                 });
             }
         });
 
+        console.log(`DEBUG: Extracted ${conversation.length} messages for PDF`);
         return conversation.slice(-10); // Last 10 messages
     }
 
