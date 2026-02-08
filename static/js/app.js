@@ -3038,10 +3038,29 @@
      */
     function captureMapScreenshot() {
         try {
+            // Wait a bit for map to fully render
+            map.resize();
             const canvas = map.getCanvas();
-            return canvas.toDataURL('image/png');
+            return canvas.toDataURL('image/png', 0.95); // 95% quality
         } catch (error) {
             console.error('Failed to capture map screenshot:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Capture heatmap visualization if available
+     */
+    function captureHeatmapView() {
+        try {
+            // Check if heatmap is currently active
+            if (currentVizMode === 'heatmap' || currentVizMode === 'deck') {
+                const canvas = map.getCanvas();
+                return canvas.toDataURL('image/png', 0.95);
+            }
+            return null;
+        } catch (error) {
+            console.error('Failed to capture heatmap:', error);
             return null;
         }
     }
@@ -3166,7 +3185,9 @@
 
         console.log(`DEBUG formatLocationsForPDF: First record:`, lastContextRecords[0]);
         
-        return lastContextRecords.slice(0, 20).map(record => {
+        // Return ALL locations for rating distribution analysis
+        // The PDF backend will show top 15 in detail, but analyze all for charts
+        return lastContextRecords.map(record => {
             // Extract rating from pg object
             let rating = 'N/A';
             if (record.pg) {

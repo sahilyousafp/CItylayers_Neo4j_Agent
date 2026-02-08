@@ -1885,19 +1885,20 @@ def _generate_pdf_report(
         alignment=TA_LEFT
     )
     
-    # Section heading - Technical hierarchy
+    # Section heading - Technical hierarchy with better alignment
     heading_style = ParagraphStyle(
         'CustomHeading',
         parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor('#000000'),
+        fontSize=16,
+        textColor=colors.HexColor('#00bcd4'),
         fontName='Helvetica-Bold',
-        spaceAfter=16,
-        spaceBefore=24,
+        spaceAfter=12,
+        spaceBefore=20,
         borderWidth=0,
-        borderColor=colors.HexColor('#e0e0e0'),
-        borderPadding=0,
-        leading=18
+        leftIndent=0,
+        rightIndent=0,
+        alignment=TA_LEFT,
+        leading=20
     )
     
     # Body text - Improved readability
@@ -2000,13 +2001,16 @@ def _generate_pdf_report(
     elements.append(Spacer(1, 20))
     
     # 3. Map Visualization - Clean presentation
+    elements.append(Paragraph("Geographic Visualization", heading_style))
+    
     if map_screenshot and map_screenshot.startswith('data:image'):
-        elements.append(Paragraph("Geographic Visualization", heading_style))
         try:
+            print(f"DEBUG: Map screenshot data length: {len(map_screenshot)}")
             # Extract base64 data
             image_data = map_screenshot.split(',')[1]
             image_bytes = base64.b64decode(image_data)
             image_buffer = BytesIO(image_bytes)
+            print(f"DEBUG: Decoded image bytes: {len(image_bytes)}")
             
             # Add image to PDF with border
             img = RLImage(image_buffer, width=5.5*inch, height=3.8*inch)
@@ -2022,9 +2026,17 @@ def _generate_pdf_report(
             elements.append(img_table)
             elements.append(Spacer(1, 8))
             elements.append(Paragraph("<i>Figure 1: Spatial distribution of analyzed locations</i>", meta_style))
+            print(f"DEBUG: Map screenshot embedded successfully")
         except Exception as e:
-            print(f"WARN: Could not embed map screenshot: {e}")
-            elements.append(Paragraph("Geographic visualization unavailable", meta_style))
+            print(f"ERROR: Could not embed map screenshot: {e}")
+            import traceback
+            traceback.print_exc()
+            elements.append(Paragraph(f"Geographic visualization unavailable: {str(e)}", meta_style))
+    else:
+        print(f"WARN: Map screenshot not provided or invalid format")
+        elements.append(Paragraph("Geographic visualization unavailable - no map screenshot provided", meta_style))
+    
+    elements.append(Spacer(1, 12))
     
     elements.append(PageBreak())
     
@@ -2254,9 +2266,10 @@ def _generate_pdf_report(
     # Rating Distribution Analysis with Bar Chart
     if locations and len(locations) > 0:
         elements.append(Paragraph("Rating Distribution", sub_heading_style))
+        elements.append(Paragraph(f"<i>Analysis of {len(locations)} locations from the map</i>", meta_style))
         elements.append(Spacer(1, 12))
         
-        # Calculate rating distribution
+        # Calculate rating distribution from ALL locations
         rating_buckets = {'0-2': 0, '2-4': 0, '4-6': 0, '6-8': 0, '8-10': 0}
         for loc in locations:
             rating = loc.get('rating', 0)
@@ -2358,7 +2371,7 @@ def _generate_pdf_report(
     # 7. Top Locations - Clean, structured layout
     elements.append(PageBreak())
     elements.append(Paragraph("Top Locations", heading_style))
-    elements.append(Paragraph("<i>Ranked by rating (top locations displayed)</i>", meta_style))
+    elements.append(Paragraph(f"<i>Showing top locations (analyzed {len(locations)} total locations from map)</i>", meta_style))
     elements.append(Spacer(1, 16))
     
     print(f"DEBUG: Processing {len(locations)} locations for PDF")
