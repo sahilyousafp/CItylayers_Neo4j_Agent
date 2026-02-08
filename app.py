@@ -1818,6 +1818,30 @@ def _generate_pdf_report(
     Returns:
         PDF bytes
     """
+    # Debug input types
+    print(f"DEBUG _generate_pdf_report() called:")
+    print(f"  - conversation type: {type(conversation)}, length: {len(conversation) if isinstance(conversation, list) else 'N/A'}")
+    print(f"  - map_screenshot type: {type(map_screenshot)}, length: {len(map_screenshot) if isinstance(map_screenshot, str) else 'N/A'}")
+    print(f"  - locations type: {type(locations)}, length: {len(locations) if isinstance(locations, list) else 'N/A'}")
+    print(f"  - statistics type: {type(statistics)}, value: {statistics}")
+    print(f"  - data_sources type: {type(data_sources)}, value: {data_sources}")
+    print(f"  - report_title type: {type(report_title)}, value: {report_title}")
+    
+    # Ensure statistics is a dict
+    if not isinstance(statistics, dict):
+        print(f"WARN: statistics is {type(statistics)}, converting to empty dict")
+        statistics = {}
+    
+    # Ensure locations is a list
+    if not isinstance(locations, list):
+        print(f"WARN: locations is {type(locations)}, converting to empty list")
+        locations = []
+    
+    # Ensure conversation is a list
+    if not isinstance(conversation, list):
+        print(f"WARN: conversation is {type(conversation)}, converting to empty list")
+        conversation = []
+    
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, 
                            rightMargin=72, leftMargin=72,
@@ -1953,16 +1977,30 @@ def _generate_pdf_report(
     elements.append(PageBreak())
     elements.append(Paragraph("<b>Top Locations (Top 10)</b>", heading_style))
     
+    print(f"DEBUG: Processing {len(locations)} locations for PDF")
     for i, loc in enumerate(locations[:10], 1):
+        # Safety check: ensure loc is a dict
+        if not isinstance(loc, dict):
+            print(f"WARN: Location {i} is {type(loc)}, skipping")
+            continue
+        
+        print(f"DEBUG: Location {i} - name: {loc.get('name', 'Unknown')}")
+        
         elements.append(Paragraph(f"<b>{i}. {loc.get('name', 'Unknown')}</b>", styles['Heading3']))
         elements.append(Paragraph(f"Address: {loc.get('precise_address', 'N/A')}", styles['Normal']))
         elements.append(Paragraph(f"Category: {loc.get('category', 'N/A')} | Rating: {loc.get('grade', 0):.1f}/10", styles['Normal']))
         
         # Add top comment
         comments = loc.get('comments', [])
-        if comments and len(comments) > 0:
+        if isinstance(comments, list) and len(comments) > 0:
             top_comment = comments[0]
-            comment_text = top_comment.get('text', '')[:200]
+            if isinstance(top_comment, dict):
+                comment_text = str(top_comment.get('text', ''))[:200]
+                elements.append(Paragraph(f"<i>Comment: {comment_text}...</i>", styles['Normal']))
+            else:
+                print(f"WARN: Comment is {type(top_comment)}, not dict")
+        
+        elements.append(Spacer(1, 12))
             elements.append(Paragraph(f"💬 \"{comment_text}...\"", styles['Italic']))
         
         elements.append(Spacer(1, 12))
