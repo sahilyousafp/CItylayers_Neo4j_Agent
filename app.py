@@ -9,6 +9,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 import base64
+from PIL import Image as PILImage
 
 # PDF generation
 from reportlab.lib.pagesizes import A4, letter
@@ -60,13 +61,14 @@ def get_session_store() -> Dict[str, Any]:
     return SESSIONS[sid]
 
 
-def _score_comment_relevance(comment_text: str, user_query: str) -> float:
+def _score_comment_relevance(comment_text: str, user_query: str, answer_context: str = "") -> float:
     """
-    Score the relevance of a comment to a user's query using keyword matching.
+    Score the relevance of a comment to a user's query and answer context using keyword matching.
     
     Args:
         comment_text: The text content of the comment
         user_query: The user's question
+        answer_context: The LLM's answer text (optional, for enhanced relevance)
         
     Returns:
         Relevance score (0.0 to 1.0), higher is more relevant
@@ -77,6 +79,7 @@ def _score_comment_relevance(comment_text: str, user_query: str) -> float:
     # Normalize text
     comment_lower = comment_text.lower()
     query_lower = user_query.lower()
+    answer_lower = answer_context.lower() if answer_context else ""
     
     # Define stop words to exclude
     stop_words = {
@@ -85,12 +88,20 @@ def _score_comment_relevance(comment_text: str, user_query: str) -> float:
         'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should',
         'could', 'may', 'might', 'can', 'this', 'that', 'these', 'those', 'i',
         'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when',
-        'where', 'why', 'how', 'show', 'tell', 'find', 'get', 'about', 'me'
+        'where', 'why', 'how', 'show', 'tell', 'find', 'get', 'about', 'me',
+        'there', 'here', 'location', 'place', 'places', 'area', 'region'
     }
     
     # Extract keywords from query (remove stop words and punctuation)
     query_words = re.findall(r'\b\w+\b', query_lower)
     keywords = [w for w in query_words if w not in stop_words and len(w) > 2]
+    
+    # Extract additional keywords from answer context
+    if answer_context:
+        answer_words = re.findall(r'\b\w+\b', answer_lower)
+        answer_keywords = [w for w in answer_words if w not in stop_words and len(w) > 3]
+        # Add unique answer keywords (limit to avoid noise)
+        keywords.extend([k for k in answer_keywords if k not in keywords][:10])
     
     if not keywords:
         return 0.0
@@ -98,23 +109,27 @@ def _score_comment_relevance(comment_text: str, user_query: str) -> float:
     # Calculate relevance score
     score = 0.0
     total_keywords = len(keywords)
+    query_keyword_count = len([w for w in query_words if w not in stop_words and len(w) > 2])
     
     # Check each keyword
-    for keyword in keywords:
+    for i, keyword in enumerate(keywords):
         if keyword in comment_lower:
+            # Higher weight for query keywords vs answer keywords
+            weight = 1.5 if i < query_keyword_count else 1.0
+            
             # Base score for keyword presence
-            score += 1.0
+            score += weight
             
             # Bonus for keyword appearing in first 50 characters (emphasize early mentions)
             if keyword in comment_lower[:50]:
-                score += 0.5
+                score += 0.5 * weight
             
             # Bonus for exact phrase match (multiple adjacent keywords)
             if len(keyword) > 4:
-                score += 0.3
+                score += 0.3 * weight
     
     # Normalize score to 0-1 range
-    max_possible_score = total_keywords * 1.8  # 1.0 + 0.5 + 0.3 per keyword
+    max_possible_score = query_keyword_count * 2.3 + (total_keywords - query_keyword_count) * 1.8
     normalized_score = min(score / max_possible_score, 1.0) if max_possible_score > 0 else 0.0
     
     return normalized_score
@@ -123,14 +138,16 @@ def _score_comment_relevance(comment_text: str, user_query: str) -> float:
 def _get_top_relevant_comments(
     comments: List[Dict[str, Any]],
     user_query: str,
+    answer_context: str = "",
     top_n: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Get the top N most relevant comments based on user query.
+    Get the top N most relevant comments based on user query and answer context.
     
     Args:
         comments: List of comment dictionaries with 'text' field
         user_query: The user's question
+        answer_context: The LLM's answer text (optional, for enhanced relevance)
         top_n: Number of top comments to return
         
     Returns:
@@ -144,7 +161,7 @@ def _get_top_relevant_comments(
     for comment in comments:
         comment_text = comment.get('text') or comment.get('content') or comment.get('comment_text') or ''
         if comment_text:
-            score = _score_comment_relevance(comment_text, user_query)
+            score = _score_comment_relevance(comment_text, user_query, answer_context)
             scored_comments.append({
                 **comment,
                 'relevance_score': score
@@ -157,15 +174,17 @@ def _get_top_relevant_comments(
 
 def _apply_comment_relevance_scoring(
     context_records: List[Dict[str, Any]],
-    user_query: str
+    user_query: str,
+    answer_context: str = ""
 ) -> List[Dict[str, Any]]:
     """
     Apply comment relevance scoring to context records.
-    For each place/record, rank its comments by relevance to user query.
+    For each place/record, rank its comments by relevance to user query and answer context.
     
     Args:
         context_records: List of Neo4j records with places and comments
         user_query: The user's question
+        answer_context: The LLM's answer text (optional, for enhanced relevance)
         
     Returns:
         Context records with comments sorted by relevance
@@ -186,7 +205,7 @@ def _apply_comment_relevance_scoring(
             # Handle different comment structures
             if isinstance(comments_data, list):
                 # List of comment objects
-                top_comments = _get_top_relevant_comments(comments_data, user_query, top_n=5)
+                top_comments = _get_top_relevant_comments(comments_data, user_query, answer_context, top_n=5)
                 new_record['co'] = top_comments
             elif isinstance(comments_data, dict):
                 # Single comment object
@@ -194,7 +213,8 @@ def _apply_comment_relevance_scoring(
                     **comments_data,
                     'relevance_score': _score_comment_relevance(
                         comments_data.get('text', ''), 
-                        user_query
+                        user_query,
+                        answer_context
                     )
                 }
                 new_record['co'] = [scored_comment]
@@ -205,21 +225,22 @@ def _apply_comment_relevance_scoring(
                 comments_data = record[comment_field]
                 
                 if isinstance(comments_data, list):
-                    top_comments = _get_top_relevant_comments(comments_data, user_query, top_n=5)
+                    top_comments = _get_top_relevant_comments(comments_data, user_query, answer_context, top_n=5)
                     new_record[comment_field] = top_comments
                 elif isinstance(comments_data, dict):
                     scored_comment = {
                         **comments_data,
                         'relevance_score': _score_comment_relevance(
                             comments_data.get('text', ''), 
-                            user_query
+                            user_query,
+                            answer_context
                         )
                     }
                     new_record[comment_field] = [scored_comment]
         
         processed_records.append(new_record)
     
-    print(f"DEBUG: Applied comment relevance scoring to {len(processed_records)} records")
+    print(f"DEBUG: Applied comment relevance scoring to {len(processed_records)} records (with answer context: {bool(answer_context)})")
     return processed_records
 
 
@@ -358,7 +379,7 @@ def _enrich_context_with_addresses(
     context_records: List[Dict[str, Any]], 
     mapbox_token: str,
     address_cache: Dict[Tuple[float, float], str],
-    max_locations: int = 50
+    max_locations: int = None
 ) -> List[Dict[str, Any]]:
     """
     Enrich context records with precise Mapbox addresses.
@@ -367,7 +388,7 @@ def _enrich_context_with_addresses(
         context_records: List of Neo4j records
         mapbox_token: Mapbox API token
         address_cache: Session address cache (will be updated)
-        max_locations: Maximum number of locations to geocode (rate limiting)
+        max_locations: Maximum number of locations to geocode (None = no limit)
         
     Returns:
         Enhanced records with 'precise_address' field
@@ -380,7 +401,10 @@ def _enrich_context_with_addresses(
     coord_to_records = {}  # Map cache_key to list of record indices
     locations_to_geocode = []
     
-    for idx, record in enumerate(context_records[:max_locations]):
+    # Process all records or up to max_locations
+    records_to_process = context_records if max_locations is None else context_records[:max_locations]
+    
+    for idx, record in enumerate(records_to_process):
         p = record.get('p', {})
         lat = p.get('latitude')
         lon = p.get('longitude')
@@ -504,8 +528,8 @@ def _aggregate_multi_dataset_context(
     aggregated_context = {
         "citylayers": {
             "enabled": "citylayers" in data_sources,
-            "count": len(citylayers_records),
-            "data": citylayers_records[:50] if citylayers_records else []  # Limit to 50 for LLM context
+            "count": len(citylayers_records),  # Total count of ALL records
+            "data": citylayers_records[:50] if citylayers_records else []  # Sample for LLM (token limit)
         },
         "weather": {
             "enabled": "weather" in data_sources,
@@ -658,6 +682,7 @@ def chat_endpoint():
         result = None
         context_records = []
         answer = ""
+        suggested_questions = []  # NEW: Store suggested filter questions
         
         # ALWAYS use map bounds unless user explicitly mentions a different location
         user_message_lower = question.lower()
@@ -676,24 +701,180 @@ def chat_endpoint():
         
         # CityLayers (Neo4j) is the primary source
         if "citylayers" in data_sources:
-
-            result = neo4j_agent.process(
-                query=question, 
-                chat_history=chat_history, 
-                map_context=map_context,
-                category_filter=category_filter
-            )
             
-            if result is None:
-                return jsonify({"ok": False, "error": "Query processing returned None"}), 500
+            # Check if this is a follow-up query that should filter existing results
+            is_follow_up = neo4j_agent._is_follow_up_query(question, chat_history)
+            last_records = store.get("last_context_records", [])
+            
+            if is_follow_up and len(last_records) > 0:
+                print(f"DEBUG: Detected follow-up query, filtering {len(last_records)} existing records...")
                 
-            print(f"DEBUG: Neo4j result ok={result.get('ok')}, answer length={len(result.get('answer', ''))}, context_records count={len(result.get('context_records', []))}")
-            if result.get("ok"):
-                answer = result["answer"]
-                context_records = result["context_records"]
-                print(f"DEBUG: Retrieved {len(context_records)} context_records from Neo4j agent")
-                if len(context_records) > 0:
-                    print(f"DEBUG: First context record: {str(context_records[0])[:500]}...")
+                # Use LLM to filter existing records based on the follow-up query
+                from langchain_core.prompts import PromptTemplate
+                
+                filter_prompt_template = """You are filtering a list of locations based on a follow-up question.
+
+Previous locations (showing first 100):
+{locations_context}
+
+Total locations available: {total_count}
+
+Follow-up question: {question}
+
+Analyze the question and determine which location IDs from the list match the criteria.
+Return ONLY a JSON array of place_ids that match. Example: ["place_123", "place_456"]
+
+Important:
+- If asking for "top N" or "best", return the N highest-rated/graded place_ids (sorted by grade DESC)
+- If asking for filtering criteria (e.g., "highly rated", "grade above 80"), apply that filter
+- If asking "which ones", refer to ALL locations, not just the preview
+- For grade filtering: grades are 0-100 scale
+  * "high grade" or "highly rated" → grade >= 70
+  * "above X" or "over X" → grade > X
+  * "best" or "top" → grade >= 80
+  * "low grade" → grade <= 30
+- Return place_ids as strings in a JSON array
+- DO NOT include any explanation, only the JSON array
+
+JSON array of matching place_ids:"""
+                
+                # Prepare locations context (first 100 for LLM, but we'll filter all)
+                locations_preview = last_records[:100]
+                locations_context = "\n".join([
+                    f"- ID: {rec.get('p', {}).get('place_id', 'unknown')}, "
+                    f"Name: {rec.get('p', {}).get('location', 'Unknown')}, "
+                    f"Category: {rec.get('c', {}).get('type', 'Unknown') if rec.get('c') else 'Unknown'}, "
+                    f"Grade: {rec.get('pg', {}).get('grade', 'N/A') if rec.get('pg') else 'N/A'}"
+                    for rec in locations_preview
+                ])
+                
+                filter_prompt = PromptTemplate(
+                    input_variables=["locations_context", "total_count", "question"],
+                    template=filter_prompt_template
+                )
+                
+                formatted_filter_prompt = filter_prompt.format(
+                    locations_context=locations_context,
+                    total_count=len(last_records),
+                    question=question
+                )
+                
+                print(f"DEBUG: Asking LLM to filter locations...")
+                filter_response = neo4j_agent.llm.invoke(formatted_filter_prompt)
+                filter_content = filter_response.content if hasattr(filter_response, 'content') else str(filter_response)
+                
+                print(f"DEBUG: LLM filter response: {filter_content[:200]}...")
+                
+                # Parse the JSON array of place_ids
+                import json
+                import re
+                try:
+                    # Extract JSON array from response
+                    json_match = re.search(r'\[.*?\]', filter_content, re.DOTALL)
+                    if json_match:
+                        matched_ids = json.loads(json_match.group())
+                        print(f"DEBUG: LLM identified {len(matched_ids)} matching place_ids")
+                        
+                        # Filter context_records to only include matched IDs
+                        context_records = [
+                            rec for rec in last_records 
+                            if rec.get('p', {}).get('place_id') in matched_ids
+                        ]
+                        
+                        print(f"DEBUG: Filtered to {len(context_records)} matching records")
+                        
+                        # Generate answer for filtered results
+                        from agents.neo4j_agent import Neo4jAgent
+                        filtered_context_summary = neo4j_agent._prepare_context_summary(
+                            context_records,
+                            category_filter
+                        )
+                        
+                        from langchain_core.prompts import PromptTemplate
+                        from agents.neo4j_agent import QA_TEMPLATE
+                        
+                        qa_prompt = PromptTemplate(
+                            input_variables=["question", "context"],
+                            template=QA_TEMPLATE
+                        )
+                        
+                        formatted_qa_prompt = qa_prompt.format(
+                            question=question,
+                            context=filtered_context_summary
+                        )
+                        
+                        answer_response = neo4j_agent.llm.invoke(formatted_qa_prompt)
+                        answer = answer_response.content if hasattr(answer_response, 'content') else str(answer_response)
+                        
+                        print(f"DEBUG: Generated answer for filtered results")
+                        
+                    else:
+                        print(f"WARN: Could not parse filter response, falling back to full query")
+                        is_follow_up = False  # Fall back to normal query
+                        
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"WARN: Error parsing filter response: {e}, falling back to full query")
+                    is_follow_up = False  # Fall back to normal query
+            
+            # If not a follow-up OR filtering failed, run normal query
+            if not is_follow_up or not context_records:
+                # First, run the query to get raw records
+                result = neo4j_agent.process(
+                    query=question, 
+                    chat_history=chat_history, 
+                    map_context=map_context,
+                    category_filter=category_filter
+                )
+                
+                if result is None:
+                    return jsonify({"ok": False, "error": "Query processing returned None"}), 500
+                    
+                print(f"DEBUG: Neo4j result ok={result.get('ok')}, answer length={len(result.get('answer', ''))}, context_records count={len(result.get('context_records', []))}")
+                if result.get("ok"):
+                    answer = result["answer"]
+                    context_records = result["context_records"]
+                    print(f"DEBUG: Retrieved {len(context_records)} context_records from Neo4j agent")
+                    if len(context_records) > 0:
+                        print(f"DEBUG: First context record: {str(context_records[0])[:500]}...")
+            
+            if context_records:
+                # CRITICAL: Enrich addresses BEFORE they're used anywhere else
+                # This ensures precise addresses are available for all downstream processing
+                print(f"DEBUG: Enriching {len(context_records)} records with precise Mapbox addresses...")
+                context_records = _enrich_context_with_addresses(
+                    context_records=context_records,
+                    mapbox_token=Config.MAPBOX_ACCESS_TOKEN,
+                    address_cache=store.get("address_cache", {}),
+                    max_locations=None  # Process ALL locations, no limit
+                )
+                
+                # Only regenerate answer if NOT from follow-up (follow-up already generated)
+                if not is_follow_up:
+                    # Now regenerate the answer with enriched addresses
+                    # Re-prepare context with precise addresses
+                    from agents.neo4j_agent import Neo4jAgent
+                    enriched_context_summary = store["neo4j_agent"]._prepare_context_summary(
+                        context_records, 
+                        category_filter
+                    )
+                    
+                    # Regenerate answer with precise addresses
+                    print(f"DEBUG: Regenerating answer with precise addresses...")
+                    from langchain_core.prompts import PromptTemplate
+                    from agents.neo4j_agent import QA_TEMPLATE
+                    
+                    qa_prompt = PromptTemplate(
+                        input_variables=["question", "context"],
+                        template=QA_TEMPLATE,
+                    )
+                    formatted_qa_prompt = qa_prompt.format(
+                        question=question,
+                        context=enriched_context_summary
+                    )
+                    
+                    answer_response = store["neo4j_agent"].llm.invoke(formatted_qa_prompt)
+                    answer = answer_response.content if hasattr(answer_response, 'content') else str(answer_response)
+                    print(f"DEBUG: Answer regenerated with precise addresses")
         
         # Aggregate multi-dataset context
         aggregated_context = _aggregate_multi_dataset_context(
@@ -707,16 +888,10 @@ def chat_endpoint():
             if info["enabled"]:
                 print(f"  - {source}: {info['count']} items")
         
-        # Apply comment relevance scoring to context_records
+        # Apply initial comment relevance scoring to context_records (based on question only)
         context_records = _apply_comment_relevance_scoring(context_records, question)
         
-        # Enrich context records with precise Mapbox addresses
-        context_records = _enrich_context_with_addresses(
-            context_records=context_records,
-            mapbox_token=Config.MAPBOX_ACCESS_TOKEN,
-            address_cache=store.get("address_cache", {}),
-            max_locations=50
-        )
+        # NOTE: Address enrichment already done above, before answer generation
         
         # If multiple datasets are enabled, enhance the answer with cross-dataset analysis
         if len([s for s in data_sources if aggregated_context[s]["enabled"]]) > 1:
@@ -737,6 +912,11 @@ def chat_endpoint():
         # Enrich answer with online information about locations (only for citylayers data)
         if "citylayers" in data_sources and context_records:
             answer = _enrich_with_online_info(answer, context_records, scraper_agent, bounds)
+        
+        # Re-apply comment relevance scoring with answer context for better relevance
+        # This ensures comments shown are relevant to BOTH the question AND the answer
+        print(f"DEBUG: Re-scoring comments with answer context (answer length: {len(answer)})")
+        context_records = _apply_comment_relevance_scoring(context_records, question, answer)
         
         # Store context for map visualization
         store["last_context_records"] = context_records
@@ -876,12 +1056,31 @@ def map_data():
         if grade_col:
             try:
                 if grade_col in ['grades_and_subgrades', 'place_grades']:
-                    grade = _extract_from_nested(row, grade_col)
+                    # Extract grade from nested structure
+                    grades_data = row.get(grade_col)
+                    if grades_data:
+                        # Handle list of grade objects
+                        if isinstance(grades_data, list) and len(grades_data) > 0:
+                            # Get the first grade object
+                            grade_obj = grades_data[0]
+                            if isinstance(grade_obj, dict):
+                                grade_value = grade_obj.get('grade') or grade_obj.get('value')
+                                if grade_value:
+                                    feature["grade"] = float(grade_value)
+                        # Handle single grade object
+                        elif isinstance(grades_data, dict):
+                            grade_value = grades_data.get('grade') or grades_data.get('value')
+                            if grade_value:
+                                feature["grade"] = float(grade_value)
                 else:
                     grade = _safe_get_value(row, grade_col)
-                if grade:
-                    feature["grade"] = grade
+                    if grade:
+                        try:
+                            feature["grade"] = float(grade)
+                        except (ValueError, TypeError):
+                            feature["grade"] = grade
             except Exception as e:
+                print(f"WARN: Failed to extract grade: {e}")
                 pass
         
         # Add remaining columns
@@ -1070,7 +1269,7 @@ def _extract_all_categories(row, cat_col):
 
 
 def _fetch_city_boundaries(osm_agent, city_names, features):
-    """Helper to fetch city boundaries for choropleth."""
+    """Helper to fetch city boundaries for hexagon."""
     boundaries = []
     for city_name in city_names:
         try:
@@ -1334,7 +1533,7 @@ def _get_viz_recommendation(store, scraper_agent, question, context_records):
 
 
 def _fetch_city_boundaries(osm_agent, city_names, features):
-    """Helper to fetch city boundaries for choropleth."""
+    """Helper to fetch city boundaries for hexagon."""
     boundaries = []
     for city_name in city_names:
         try:
@@ -1863,7 +2062,7 @@ def _generate_pdf_report(
     # Define styles - Technical, refined design
     styles = getSampleStyleSheet()
     
-    # Title style - Bold, clean, technical
+    # Title style - Bold, clean, technical, CENTERED
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
@@ -1872,11 +2071,11 @@ def _generate_pdf_report(
         fontName='Helvetica-Bold',
         spaceAfter=8,
         spaceBefore=0,
-        alignment=TA_LEFT,
+        alignment=TA_CENTER,  # Changed to CENTER
         leading=34
     )
     
-    # Subtitle style
+    # Subtitle style - CENTERED
     subtitle_style = ParagraphStyle(
         'SubTitle',
         parent=styles['Normal'],
@@ -1885,7 +2084,7 @@ def _generate_pdf_report(
         fontName='Helvetica',
         spaceAfter=36,
         spaceBefore=4,
-        alignment=TA_LEFT
+        alignment=TA_CENTER  # Changed to CENTER
     )
     
     # Section heading - Technical hierarchy with better alignment
@@ -1951,26 +2150,77 @@ def _generate_pdf_report(
         leading=15
     )
     
-    # 1. Cover Page - Clean, technical layout
-    elements.append(Spacer(1, 1.5*inch))
+    # 1. Cover Page - Clean, technical layout with logo
+    elements.append(Spacer(1, 1*inch))
     
-    # Title with subtle underline
+    # Add City Layers logo
+    try:
+        logo_path = os.path.join(os.path.dirname(__file__), 'static', 'images', 'city_layers_logo.png')
+        if os.path.exists(logo_path):
+            # Load logo with PIL to get dimensions
+            from PIL import Image as PILImage
+            pil_logo = PILImage.open(logo_path)
+            logo_width, logo_height = pil_logo.size
+            
+            # Calculate aspect ratio and resize to fit
+            max_logo_width = 3 * inch
+            max_logo_height = 1.5 * inch
+            
+            aspect_ratio = logo_width / logo_height
+            
+            if aspect_ratio > (max_logo_width / max_logo_height):
+                # Width is limiting factor
+                final_logo_width = max_logo_width
+                final_logo_height = max_logo_width / aspect_ratio
+            else:
+                # Height is limiting factor
+                final_logo_height = max_logo_height
+                final_logo_width = max_logo_height * aspect_ratio
+            
+            # Add logo centered
+            logo_img = RLImage(logo_path, width=final_logo_width, height=final_logo_height)
+            logo_table = Table([[logo_img]], colWidths=[6.5*inch])
+            logo_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(logo_table)
+            elements.append(Spacer(1, 0.5*inch))
+            print("DEBUG: Added City Layers logo to PDF title page")
+        else:
+            print(f"WARN: Logo file not found at {logo_path}")
+            elements.append(Spacer(1, 0.5*inch))
+    except Exception as e:
+        print(f"ERROR: Could not add logo to PDF: {e}")
+        elements.append(Spacer(1, 0.5*inch))
+    
+    # Title with subtle underline (CENTERED)
     elements.append(Paragraph("CITY LAYERS", title_style))
     elements.append(Paragraph("Analysis Report", subtitle_style))
     elements.append(Spacer(1, 0.2*inch))
     
-    # Report details in structured format
-    elements.append(Paragraph(f"<b>{report_title}</b>", body_style))
+    # Report details in structured format (CENTERED)
+    report_title_style = ParagraphStyle(
+        'ReportTitle',
+        parent=body_style,
+        fontSize=14,
+        fontName='Helvetica-Bold',
+        alignment=TA_CENTER,
+        textColor=colors.HexColor('#333333'),
+        spaceAfter=12
+    )
+    elements.append(Paragraph(f"{report_title}", report_title_style))
     elements.append(Spacer(1, 0.4*inch))
     
-    # Metadata section
+    # Metadata section (CENTERED TABLE)
     meta_data = [
         ['Report Generated', datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
         ['Data Sources', ', '.join(data_sources)],
         ['Total Locations', str(statistics.get('total_locations', 0))],
     ]
     
-    meta_table = Table(meta_data, colWidths=[1.5*inch, 4.5*inch])
+    # Create centered metadata table with better layout
+    meta_table = Table(meta_data, colWidths=[2*inch, 3*inch])
     meta_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
         ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
@@ -1980,12 +2230,22 @@ def _generate_pdf_report(
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Center all text in table
     ]))
-    elements.append(meta_table)
+    
+    # Wrap table in another table to center it on the page
+    centered_meta = Table([[meta_table]], colWidths=[6.5*inch])
+    centered_meta.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    
+    elements.append(centered_meta)
     elements.append(PageBreak())
     
-    # 2. Executive Summary - Technical format
+    # 2. Executive Summary - Centered, larger text
     elements.append(Paragraph("Executive Summary", heading_style))
+    elements.append(Spacer(1, 12))
     
     # Safely convert average_rating to float
     avg_rating = statistics.get('average_rating', 0)
@@ -1995,33 +2255,41 @@ def _generate_pdf_report(
         except:
             avg_rating = 0.0
     
+    # Create centered, larger executive summary
+    exec_summary_style = ParagraphStyle(
+        'ExecutiveSummary',
+        parent=body_style,
+        fontSize=12,
+        textColor=colors.HexColor('#333333'),
+        fontName='Helvetica',
+        leading=18,
+        alignment=TA_CENTER,
+        spaceAfter=12,
+        leftIndent=36,
+        rightIndent=36
+    )
+    
     summary_text = f"""
     This technical analysis encompasses <b>{statistics.get('total_locations', 0)} locations</b> 
     across the selected geographic area. The dataset integrates multiple data sources and includes 
     comprehensive metrics with an average location rating of <b>{avg_rating:.1f} / 10</b>.
     """
-    elements.append(Paragraph(summary_text, body_style))
+    elements.append(Paragraph(summary_text, exec_summary_style))
     elements.append(Spacer(1, 20))
     
-    # 3. Map Visualization - Clean presentation
-    # ==========================================
-    # 4. GEOGRAPHIC VISUALIZATIONS (All 4 Modes)
-    # ==========================================
-    elements.append(PageBreak())
-    elements.append(Paragraph("Geographic Visualizations", heading_style))
-    elements.append(Paragraph("Complete spatial analysis showing all visualization modes with their unique perspectives on the data", meta_style))
-    elements.append(Spacer(1, 12))
+    # 3. GEOGRAPHIC VISUALIZATIONS (Each on separate page with analytics)
+    # =====================================================================
     
     # Define visualization modes and their descriptions
     viz_modes = [
-        ('mapbox', 'Marker View', 'Individual location markers showing precise point data'),
-        ('scatter', 'Scatter Plot', 'Density-based scatter visualization revealing spatial patterns'),
-        ('heatmap', 'Heat Map', 'Intensity-based heat map highlighting concentration areas'),
-        ('chloropleth', 'Choropleth Map', 'Grid-based aggregation showing regional distributions')
+        ('mapbox', 'Marker View', 'Individual location markers showing precise point data', '📍'),
+        ('scatter', 'Scatter Plot', 'Density-based scatter visualization revealing spatial patterns', '🔵'),
+        ('heatmap', 'Heat Map', 'Intensity-based heat map highlighting concentration areas', '🔥'),
+        ('hexagon', 'Hexagon Map', 'Grid-based aggregation showing regional distributions', '⬡')
     ]
     
     figure_num = 1
-    for mode_key, mode_title, mode_description in viz_modes:
+    for mode_key, mode_title, mode_description, emoji in viz_modes:
         screenshot = map_screenshots.get(mode_key, '')
         
         # Fallback to single screenshot if mode-specific not available
@@ -2032,68 +2300,170 @@ def _generate_pdf_report(
             try:
                 print(f"DEBUG: Adding {mode_title} screenshot (length: {len(screenshot)})")
                 
-                # Add mode section header
-                mode_header_style = ParagraphStyle(
-                    'ModeHeader',
-                    parent=sub_heading_style,
-                    fontSize=11,
+                # START NEW PAGE FOR EACH VISUALIZATION
+                elements.append(PageBreak())
+                
+                # Page header with emoji and title
+                page_title_style = ParagraphStyle(
+                    'PageTitle',
+                    parent=heading_style,
+                    fontSize=20,
                     textColor=colors.HexColor('#00bcd4'),
-                    spaceAfter=4
+                    fontName='Helvetica-Bold',
+                    spaceAfter=8,
+                    alignment=TA_CENTER
                 )
-                elements.append(Paragraph(f"{mode_title}", mode_header_style))
-                elements.append(Paragraph(mode_description, meta_style))
-                elements.append(Spacer(1, 6))
+                elements.append(Paragraph(f"{emoji} {mode_title}", page_title_style))
+                
+                # Description
+                desc_style = ParagraphStyle(
+                    'VizDescription',
+                    parent=meta_style,
+                    fontSize=11,
+                    textColor=colors.HexColor('#666666'),
+                    alignment=TA_CENTER,
+                    spaceAfter=20
+                )
+                elements.append(Paragraph(mode_description, desc_style))
+                elements.append(Spacer(1, 0.3*inch))
                 
                 # Extract base64 data
                 image_data = screenshot.split(',')[1]
                 image_bytes = base64.b64decode(image_data)
                 image_buffer = BytesIO(image_bytes)
                 
-                # Add image with border
-                img = RLImage(image_buffer, width=6*inch, height=4*inch)
-                img_table = Table([[img]], colWidths=[6*inch])
+                # Load image to get actual dimensions
+                pil_img = PILImage.open(image_buffer)
+                img_width, img_height = pil_img.size
+                
+                print(f"DEBUG: {mode_title} image dimensions: {img_width}x{img_height}")
+                
+                # Calculate aspect ratio
+                aspect_ratio = img_width / img_height
+                
+                # Set max dimensions - larger for dedicated page, INCREASED BY 20%
+                max_width = 7 * inch * 1.2  # 8.4 inches (120% of 7")
+                max_height = 5 * inch * 1.2  # 6 inches (120% of 5")
+                
+                # Calculate actual dimensions
+                if aspect_ratio > (max_width / max_height):
+                    # Width is limiting factor
+                    final_width = max_width
+                    final_height = max_width / aspect_ratio
+                else:
+                    # Height is limiting factor
+                    final_height = max_height
+                    final_width = max_height * aspect_ratio
+                
+                print(f"DEBUG: {mode_title} final dimensions: {final_width/inch:.2f}in x {final_height/inch:.2f}in")
+                
+                # Reset buffer for reportlab
+                image_buffer.seek(0)
+                
+                # Add image with enhanced styling (wider table for 20% larger image)
+                img = RLImage(image_buffer, width=final_width, height=final_height)
+                img_table = Table([[img]], colWidths=[8.5*inch])  # Increased to fit larger image
                 img_table.setStyle(TableStyle([
-                    ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#00bcd4')),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#00bcd4')),
                     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('TOPPADDING', (0, 0), (-1, -1), 4),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('TOPPADDING', (0, 0), (-1, -1), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fa')),
                 ]))
                 
                 elements.append(img_table)
-                elements.append(Spacer(1, 6))
+                elements.append(Spacer(1, 0.2*inch))
                 
+                # Figure caption
                 caption_style = ParagraphStyle(
-                    'Caption',
+                    'FigureCaption',
                     parent=meta_style,
-                    fontSize=9,
-                    textColor=colors.HexColor('#555555'),
+                    fontSize=10,
+                    textColor=colors.HexColor('#333333'),
                     fontName='Helvetica-Oblique',
-                    alignment=TA_CENTER
+                    alignment=TA_CENTER,
+                    spaceAfter=20
                 )
-                elements.append(Paragraph(f"<i>Figure {figure_num}: {mode_title} - {mode_description}</i>", caption_style))
-                elements.append(Spacer(1, 16))
-                print(f"DEBUG: {mode_title} screenshot embedded successfully")
+                elements.append(Paragraph(f"<i>Figure {figure_num}: {mode_title}</i>", caption_style))
+                
+                # Add mode-specific insights
+                insights_style = ParagraphStyle(
+                    'Insights',
+                    parent=body_style,
+                    fontSize=10,
+                    textColor=colors.HexColor('#333333'),
+                    leftIndent=30,
+                    rightIndent=30,
+                    spaceAfter=10,
+                    leading=14
+                )
+                
+                # Mode-specific analytics
+                if mode_key == 'mapbox':
+                    insight_text = f"""
+                    <b>Key Insights:</b> This view shows <b>{statistics.get('total_locations', 0)} individual locations</b> 
+                    as precise markers. Each point represents a unique place with specific coordinates, allowing for 
+                    detailed geographic analysis of exact positions.
+                    """
+                elif mode_key == 'scatter':
+                    insight_text = f"""
+                    <b>Key Insights:</b> The scatter plot reveals <b>spatial distribution patterns</b> across the area. 
+                    Clusters indicate areas of high activity or interest, with each point sized by importance. 
+                    Average rating: <b>{statistics.get('average_rating', 0):.1f}/10</b>.
+                    """
+                elif mode_key == 'heatmap':
+                    top_rated = statistics.get('top_rated', {})
+                    top_name = top_rated.get('name', 'N/A') if isinstance(top_rated, dict) else 'N/A'
+                    insight_text = f"""
+                    <b>Key Insights:</b> The heat map highlights <b>concentration zones</b> where data points cluster. 
+                    Warmer colors (red/orange) indicate higher density or ratings. Top rated location: 
+                    <b>{top_name}</b>.
+                    """
+                elif mode_key == 'hexagon':
+                    cat_breakdown = statistics.get('category_breakdown', {})
+                    top_category = max(cat_breakdown.items(), key=lambda x: x[1])[0] if cat_breakdown else 'N/A'
+                    insight_text = f"""
+                    <b>Key Insights:</b> The hexagonal grid aggregates data into <b>regional zones</b>, 
+                    revealing macro-level patterns. Most prominent category: <b>{top_category}</b> with 
+                    {cat_breakdown.get(top_category, 0)} locations.
+                    """
+                
+                elements.append(Paragraph(insight_text, insights_style))
+                
+                print(f"DEBUG: {mode_title} screenshot embedded successfully on dedicated page")
                 figure_num += 1
+                
             except Exception as e:
                 print(f"ERROR: Could not embed {mode_title} screenshot: {e}")
                 import traceback
                 traceback.print_exc()
-                elements.append(Paragraph(f"⚠ {mode_title} visualization unavailable: {str(e)}", meta_style))
-                elements.append(Spacer(1, 8))
+                # Add error page
+                elements.append(PageBreak())
+                elements.append(Paragraph(f"{emoji} {mode_title}", page_title_style))
+                elements.append(Paragraph(f"⚠ Visualization unavailable: {str(e)}", meta_style))
         else:
             print(f"WARN: {mode_title} screenshot not provided or invalid format")
-            elements.append(Paragraph(f"⚠ {mode_title} visualization unavailable", meta_style))
-            elements.append(Spacer(1, 8))
+            # Add placeholder page
+            elements.append(PageBreak())
+            page_title_style = ParagraphStyle(
+                'PageTitle',
+                parent=heading_style,
+                fontSize=20,
+                textColor=colors.HexColor('#00bcd4'),
+                fontName='Helvetica-Bold',
+                spaceAfter=8,
+                alignment=TA_CENTER
+            )
+            elements.append(Paragraph(f"{emoji} {mode_title}", page_title_style))
+            elements.append(Paragraph(f"⚠ Visualization not available", meta_style))
 
-    
-    elements.append(Spacer(1, 12))
     
     elements.append(PageBreak())
     
-    # 4. Key Insights from Analysis
+    # 4. Key Insights from Analysis (PRESERVING EXACT CHAT STRUCTURE)
     elements.append(Paragraph("Analysis Summary", heading_style))
     elements.append(Spacer(1, 12))
     
@@ -2103,67 +2473,255 @@ def _generate_pdf_report(
             if isinstance(msg, dict) and msg.get('role') == 'assistant':
                 assistant_content = msg.get('content', '')
                 if assistant_content:
-                    # Parse and format the content with better styling
-                    lines = assistant_content.split('\n')
-                    in_list = False
+                    print(f"DEBUG: Converting markdown to PDF, content length: {len(assistant_content)}")
                     
-                    for line in lines:
-                        line = line.strip()
-                        if not line:
-                            if in_list:
-                                elements.append(Spacer(1, 8))
-                                in_list = False
-                            continue
+                    # Use markdown2 to convert to HTML (EXACT same library as chat uses via marked.js)
+                    html_content = markdown2.markdown(
+                        assistant_content,
+                        extras=['tables', 'fenced-code-blocks', 'break-on-newline', 'header-ids']
+                    )
+                    
+                    print(f"DEBUG: HTML content length after markdown2: {len(html_content)}")
+                    
+                    # Replace HTML tags that reportlab understands
+                    # markdown2 uses <strong> and <em>, reportlab prefers <b> and <i>
+                    html_content = html_content.replace('<strong>', '<b>').replace('</strong>', '</b>')
+                    html_content = html_content.replace('<em>', '<i>').replace('</em>', '</i>')
+                    
+                    # Process HTML element by element to preserve structure EXACTLY as in chat
+                    # Split by block-level tags while preserving them
+                    import html.parser
+                    
+                    class MarkdownHTMLParser(html.parser.HTMLParser):
+                        def __init__(self):
+                            super().__init__()
+                            self.elements = []
+                            self.current_tag = None
+                            self.current_data = []
+                            self.table_rows = []
+                            self.in_table = False
+                            self.list_items = []
+                            self.in_list = False
+                            self.list_type = None
+                            
+                        def handle_starttag(self, tag, attrs):
+                            if tag in ['h1', 'h2', 'h3', 'h4']:
+                                self.current_tag = tag
+                                self.current_data = []
+                            elif tag == 'table':
+                                self.in_table = True
+                                self.table_rows = []
+                            elif tag == 'tr' and self.in_table:
+                                self.current_data = []
+                            elif tag in ['ul', 'ol']:
+                                self.in_list = True
+                                self.list_type = tag
+                                self.list_items = []
+                            elif tag == 'li' and self.in_list:
+                                self.current_data = []
+                            elif tag == 'p':
+                                self.current_tag = 'p'
+                                self.current_data = []
+                            elif tag == 'br':
+                                self.current_data.append('\n')
                         
-                        # Remove emojis and special markdown chars for PDF compatibility  
-                        line = line.encode('ascii', 'ignore').decode('ascii')
-                        line = line.replace('**', '').replace('__', '')
+                        def handle_endtag(self, tag):
+                            if tag in ['h1', 'h2', 'h3', 'h4']:
+                                text = ''.join(self.current_data).strip()
+                                self.elements.append((tag, text))
+                                self.current_tag = None
+                                self.current_data = []
+                            elif tag == 'table':
+                                self.elements.append(('table', self.table_rows))
+                                self.in_table = False
+                                self.table_rows = []
+                            elif tag == 'tr' and self.in_table:
+                                self.table_rows.append(self.current_data[:])
+                                self.current_data = []
+                            elif tag in ['ul', 'ol']:
+                                self.elements.append((self.list_type, self.list_items))
+                                self.in_list = False
+                                self.list_items = []
+                                self.list_type = None
+                            elif tag == 'li' and self.in_list:
+                                text = ''.join(self.current_data).strip()
+                                self.list_items.append(text)
+                                self.current_data = []
+                            elif tag == 'p':
+                                text = ''.join(self.current_data).strip()
+                                if text:
+                                    self.elements.append(('p', text))
+                                self.current_tag = None
+                                self.current_data = []
                         
-                        # Section headers (## Header)
-                        if line.startswith('##'):
-                            line = line.replace('#', '').strip()
-                            elements.append(Spacer(1, 12))
-                            header_para = Paragraph(f"<b>{line}</b>", sub_heading_style)
-                            elements.append(header_para)
+                        def handle_data(self, data):
+                            self.current_data.append(data)
+                        
+                        def handle_startendtag(self, tag, attrs):
+                            if tag in ['td', 'th'] and self.in_table:
+                                pass
+                    
+                    parser = MarkdownHTMLParser()
+                    parser.feed(html_content)
+                    
+                    print(f"DEBUG: Parsed {len(parser.elements)} structural elements from HTML")
+                    
+                    # Convert parsed elements to PDF elements preserving EXACT structure
+                    for elem_type, elem_data in parser.elements:
+                        if elem_type in ['h1', 'h2']:
+                            # H2 headers - main sections
+                            elements.append(Spacer(1, 14))
+                            h2_style = ParagraphStyle(
+                                'H2Style',
+                                parent=sub_heading_style,
+                                fontSize=13,
+                                textColor=colors.HexColor('#00bcd4'),
+                                fontName='Helvetica-Bold',
+                                spaceAfter=6,
+                                spaceBefore=6
+                            )
+                            elements.append(Paragraph(elem_data, h2_style))
+                            elements.append(Spacer(1, 4))
+                            
+                        elif elem_type == 'h3':
+                            # H3 headers - subsections
+                            elements.append(Spacer(1, 10))
+                            h3_style = ParagraphStyle(
+                                'H3Style',
+                                parent=body_style,
+                                fontSize=11,
+                                textColor=colors.HexColor('#333333'),
+                                fontName='Helvetica-Bold',
+                                spaceAfter=4,
+                                spaceBefore=4
+                            )
+                            elements.append(Paragraph(elem_data, h3_style))
+                            
+                        elif elem_type == 'h4':
+                            # H4 headers - minor subsections
+                            h4_style = ParagraphStyle(
+                                'H4Style',
+                                parent=body_style,
+                                fontSize=10,
+                                textColor=colors.HexColor('#555555'),
+                                fontName='Helvetica-Bold',
+                                spaceAfter=3
+                            )
+                            elements.append(Paragraph(elem_data, h4_style))
+                            
+                        elif elem_type == 'ul':
+                            # Unordered lists with proper indentation
+                            for item in elem_data:
+                                bullet_style = ParagraphStyle(
+                                    'BulletStyle',
+                                    parent=body_style,
+                                    leftIndent=24,
+                                    bulletIndent=12,
+                                    fontSize=10,
+                                    leading=14,
+                                    spaceAfter=3
+                                )
+                                elements.append(Paragraph(f"• {item}", bullet_style))
                             elements.append(Spacer(1, 6))
-                            in_list = False
-                        # Bullet points  
-                        elif line.startswith('-') or line.startswith('*'):
-                            line = line.lstrip('-*').strip()
-                            bullet_style = ParagraphStyle(
-                                'BulletPoint',
-                                parent=body_style,
-                                leftIndent=20,
-                                bulletIndent=10,
-                                fontSize=10,
-                                leading=14
-                            )
-                            elements.append(Paragraph(f"• {line}", bullet_style))
-                            in_list = True
-                        # Numbered lists (1. Item)
-                        elif len(line) > 2 and line[0].isdigit() and line[1:3] in ['. ', ') ']:
-                            numbered_style = ParagraphStyle(
-                                'NumberedPoint',
-                                parent=body_style,
-                                leftIndent=20,
-                                fontSize=10,
-                                leading=14
-                            )
-                            elements.append(Paragraph(line, numbered_style))
-                            in_list = True
-                        # Regular paragraphs - skip very short lines (likely fragments)
-                        elif len(line) > 15:
-                            if in_list:
-                                elements.append(Spacer(1, 8))
-                                in_list = False
-                            para_style = ParagraphStyle(
-                                'AnalysisPara',
-                                parent=body_style,
-                                fontSize=10,
-                                leading=15,
-                                spaceAfter=6
-                            )
-                            elements.append(Paragraph(line, para_style))
+                            
+                        elif elem_type == 'ol':
+                            # Ordered lists with proper numbering
+                            for i, item in enumerate(elem_data, 1):
+                                numbered_style = ParagraphStyle(
+                                    'NumberedStyle',
+                                    parent=body_style,
+                                    leftIndent=24,
+                                    fontSize=10,
+                                    leading=14,
+                                    spaceAfter=3
+                                )
+                                elements.append(Paragraph(f"{i}. {item}", numbered_style))
+                            elements.append(Spacer(1, 6))
+                            
+                        elif elem_type == 'table':
+                            # Tables with EXACT chat styling
+                            if len(elem_data) > 0:
+                                # Convert table data to reportlab format
+                                table_data = []
+                                for row in elem_data:
+                                    # Parse cells from row HTML
+                                    cells = re.findall(r'<t[hd]>(.*?)</t[hd]>', ''.join(row) if isinstance(row, list) else row, re.DOTALL)
+                                    if not cells:
+                                        # Try without tags
+                                        cells = [cell.strip() for cell in row if isinstance(cell, str) and cell.strip()]
+                                    if cells:
+                                        # Clean cell content - keep bold tags
+                                        cleaned = []
+                                        for c in cells:
+                                            # Remove emojis but keep text formatting
+                                            c_clean = c.encode('ascii', 'ignore').decode('ascii').strip()
+                                            cleaned.append(c_clean)
+                                        table_data.append(cleaned)
+                                
+                                if table_data:
+                                    print(f"DEBUG: Rendering table with {len(table_data)} rows")
+                                    
+                                    # Create Paragraph objects for each cell to support bold text
+                                    formatted_table_data = []
+                                    for row_idx, row in enumerate(table_data):
+                                        formatted_row = []
+                                        for cell in row:
+                                            # Cell style
+                                            if row_idx == 0:
+                                                cell_style = ParagraphStyle(
+                                                    'TableHeaderCell',
+                                                    parent=body_style,
+                                                    fontSize=10,
+                                                    textColor=colors.white,
+                                                    fontName='Helvetica-Bold',
+                                                    alignment=TA_LEFT
+                                                )
+                                            else:
+                                                cell_style = ParagraphStyle(
+                                                    'TableCell',
+                                                    parent=body_style,
+                                                    fontSize=9,
+                                                    textColor=colors.HexColor('#333333'),
+                                                    alignment=TA_LEFT
+                                                )
+                                            formatted_row.append(Paragraph(cell, cell_style))
+                                        formatted_table_data.append(formatted_row)
+                                    
+                                    # Create table with proper styling
+                                    pdf_table = Table(formatted_table_data)
+                                    pdf_table.setStyle(TableStyle([
+                                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#00bcd4')),
+                                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                                        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                                        ('TOPPADDING', (0, 0), (-1, 0), 8),
+                                        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                                        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+                                        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                                        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                                        ('TOPPADDING', (0, 1), (-1, -1), 5),
+                                        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+                                    ]))
+                                    elements.append(pdf_table)
+                                    elements.append(Spacer(1, 10))
+                            
+                        elif elem_type == 'p':
+                            # Regular paragraphs - preserve bold formatting
+                            if len(elem_data) > 5:
+                                para_style = ParagraphStyle(
+                                    'BodyPara',
+                                    parent=body_style,
+                                    fontSize=10,
+                                    leading=15,
+                                    spaceAfter=6,
+                                    textColor=colors.HexColor('#333333')
+                                )
+                                elements.append(Paragraph(elem_data, para_style))
+                    
+                    print(f"DEBUG: Successfully converted markdown to {len(elements)} PDF elements")
                 break
     
     elements.append(Spacer(1, 12))

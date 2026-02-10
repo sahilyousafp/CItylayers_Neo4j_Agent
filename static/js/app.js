@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * A web application for visualizing location data with multiple visualization
- * modes including heatmaps, scatter plots, and choropleth maps.
+ * modes including heatmaps, scatter plots, and hexagon maps.
  * 
  * Key Features:
  * - Interactive map with Mapbox GL JS
@@ -76,6 +76,12 @@
     let popupModeActive = false; // Popup mode state
     let weatherPopups = []; // Array to store created popups
     let lastContextRecords = []; // Store context records from last query for PDF export
+    
+    // NEW: Track original full dataset and filtered state
+    let originalFullDataset = []; // All points from last database query
+    let activeFilters = []; // Stack of active client-side filters
+    let lastZoomLevel = null; // Track zoom for reset detection
+    let zoomResetThreshold = 0.25; // 25% zoom change triggers reset
 
     // ========================================================================
     // CATEGORY CONFIGURATION
@@ -200,7 +206,7 @@
         pitch: 0,
         bearing: 0,
         features: [],
-        boundaries: [], // For chloropleth
+        boundaries: [], // For hexagon
         shouldUpdateData: false,
         isDrawingMode: false
     };
@@ -220,7 +226,8 @@
         pitch: mapState.pitch,
         bearing: mapState.bearing,
         projection: 'mercator', // Force 2D plan view
-        antialias: true
+        antialias: true,
+        preserveDrawingBuffer: true // Required for canvas screenshot capture
     });
     
     // Apply customization on initial load
@@ -445,7 +452,12 @@
     // Initialize deck.gl
     const deckOverlay = new deck.MapboxOverlay({
         interleaved: false,
-        layers: []
+        layers: [],
+        getTooltip: null,
+        // Enable drawing buffer preservation for screenshot capture
+        glOptions: {
+            preserveDrawingBuffer: true
+        }
     });
     map.addControl(deckOverlay);
 
@@ -667,7 +679,8 @@
 
     /**
      * Update visualizations on map movement/zoom
-     * Heatmap and choropleth update dynamically with zoom level
+     * Heatmap and hexagon update dynamically with zoom level
+     * Also check for significant zoom changes to reset filters
      */
     map.on('moveend', function () {
         const center = map.getCenter();
@@ -678,9 +691,25 @@
 
         // Update compass rotation to show true north
         updateCompassRotation();
+        
+        // Check if zoom changed significantly - reset filters if so
+        if (hasZoomChangedSignificantly() && activeFilters.length > 0) {
+            console.log('Significant zoom change detected - resetting filters');
+            resetFilteringState();
+            
+            // Update visualization
+            if (currentVizMode === 'mapbox') {
+                renderMapboxMarkers();
+            }
+            updateDeckLayers();
+            updateLocationCountDisplay();
+            
+            // Show notification
+            appendMessageHTML("assistant", "<p><em>🔄 Filters reset due to zoom change. Showing all original locations.</em></p>");
+        }
 
-        // Update heatmap and choropleth visualizations on zoom change to update labels
-        if ((currentVizMode === 'heatmap' || currentVizMode === 'chloropleth') && mapState.features.length > 0) {
+        // Update heatmap and hexagon visualizations on zoom change to update labels
+        if ((currentVizMode === 'heatmap' || currentVizMode === 'hexagon') && mapState.features.length > 0) {
             updateDeckLayers();
         }
         
@@ -696,7 +725,7 @@
     
     /**
      * Update deck.gl visualization layers based on current mode
-     * Handles all visualization types: scatter, heatmap, arc, choropleth
+     * Handles all visualization types: scatter, heatmap, arc, hexagon
      */
     function updateDeckLayers() {
         const layers = [];
@@ -762,8 +791,8 @@
                 updateOverlay(heatmapResult.legend.title, heatmapResult.legend.items);
             }
         }
-        else if (currentVizMode === 'chloropleth') {
-            layers.push(...createChoroplethLayers(data, isDrawing));
+        else if (currentVizMode === 'hexagon') {
+            layers.push(...createHexagonLayers(data, isDrawing));
             const zoom = map.getZoom();
             const zoomDesc = zoom < 9 ? 'Region' : zoom < 12 ? 'City' : zoom < 15 ? 'Neighborhood' : 'Street';
             updateOverlay(`${zoomDesc} Analysis (Zoom ${Math.round(zoom)})`, [
@@ -1076,7 +1105,7 @@
         };
     }
 
-    function createChoroplethLayers(data, isDrawing) {
+    function createHexagonLayers(data, isDrawing) {
         const layers = [];
         const zoom = map.getZoom();
 
@@ -1207,7 +1236,7 @@
         if (hexFeatures.length === 0 && data.length > 0) {
             layers.push(
                 new deck.ScatterplotLayer({
-                    id: 'chloropleth-fallback',
+                    id: 'hexagon-fallback',
                     data: data,
                     getPosition: d => [d.lon, d.lat],
                     getFillColor: [200, 200, 200],
@@ -1477,6 +1506,10 @@
                 appendMessage("user", displayMessage);
                 appendMessage("assistant pending", "...");
                 
+                // Reset filter state before new query
+                console.log('Category filter button clicked - resetting filters');
+                resetFilteringState();
+                
                 // Show loading state
                 applyFilterBtn.disabled = true;
                 applyFilterBtn.textContent = 'Loading...';
@@ -1721,8 +1754,14 @@
             const res = await fetch("/map-data");
             const data = await res.json();
             if (data.ok) {
-                mapState.features = data.features || [];
+                // Store original full dataset for client-side filtering
+                originalFullDataset = data.features || [];
+                mapState.features = [...originalFullDataset];
                 mapState.boundaries = data.boundaries || [];
+                
+                // Reset filtering state when new data is loaded
+                activeFilters = [];
+                lastZoomLevel = map.getZoom();
 
                 console.log('Map data refreshed:', {
                     featureCount: mapState.features.length,
@@ -1737,16 +1776,8 @@
                 // Update category filter
                 updateCategoryFilter();
 
-                // Fit bounds if we have data
-                if (mapState.features.length > 0) {
-                    const bounds = new mapboxgl.LngLatBounds();
-                    mapState.features.forEach(f => {
-                        if (f.lat && f.lon) {
-                            bounds.extend([f.lon, f.lat]);
-                        }
-                    });
-                    map.fitBounds(bounds, { padding: 50, maxZoom: 15 });
-                }
+                // Keep zoom fixed - removed auto-fitBounds to maintain current view
+                // Users can manually zoom/pan to see results within their current bounds
 
                 // Always update visualization layers
                 updateDeckLayers();
@@ -1801,6 +1832,41 @@
     // Chat Handling
     async function sendMessage(message) {
         appendMessage("user", message);
+        
+        // Check if this is a client-side filter query
+        if (isClientSideFilter(message) && originalFullDataset.length > 0 && mapState.features.length > 0) {
+            console.log('Detected client-side filter query:', message);
+            
+            // Parse filter criteria
+            const criteria = parseFilterCriteria(message);
+            console.log('Filter criteria:', criteria);
+            
+            if (Object.keys(criteria).length > 0) {
+                // Apply filter to current features (not original - allows stacking filters)
+                const beforeCount = mapState.features.length;
+                mapState.features = applyClientSideFilter(mapState.features, criteria);
+                const afterCount = mapState.features.length;
+                
+                // Track this filter
+                activeFilters.push({ query: message, criteria });
+                
+                // Generate detailed response message
+                let responseHtml = generateFilterResponseMessage(mapState.features, beforeCount, criteria);
+                
+                appendMessageHTML("assistant", responseHtml);
+                
+                // Update visualization
+                if (currentVizMode === 'mapbox') {
+                    renderMapboxMarkers();
+                }
+                updateDeckLayers();
+                updateLocationCountDisplay();
+                
+                return;
+            }
+        }
+        
+        // Normal query - send to backend
         appendMessage("assistant pending", "...");
         try {
             const activeBounds = getActiveBounds();
@@ -1895,7 +1961,7 @@
                 // Handle visualization recommendation
                 if (data.visualization_recommendation) {
                     const rec = data.visualization_recommendation.type;
-                    if (['scatter', 'heatmap', 'chloropleth'].includes(rec)) {
+                    if (['scatter', 'heatmap', 'hexagon'].includes(rec)) {
                         setVizMode(rec);
                     }
                 } else if (drawnRegionBounds && mapState.features.length > 0) {
@@ -1917,6 +1983,348 @@
             if (pending) pending.remove();
             appendMessage("assistant error", String(e));
         }
+    }
+
+    // ========================================================================
+    // CLIENT-SIDE FILTERING FOR FOLLOW-UP QUERIES
+    // ========================================================================
+    
+    /**
+     * Generate detailed HTML response message after filtering
+     */
+    function generateFilterResponseMessage(features, beforeCount, criteria) {
+        if (features.length === 0) {
+            return `<p><strong>No locations match your filter criteria.</strong><br>
+                   Try adjusting your filter or <em>zoom out to reset</em>.</p>`;
+        }
+        
+        const afterCount = features.length;
+        
+        // Calculate statistics
+        const grades = features
+            .map(f => parseFloat(f.grade))
+            .filter(g => !isNaN(g));
+        
+        const avgGrade = grades.length > 0 
+            ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1)
+            : 'N/A';
+        
+        const maxGrade = grades.length > 0 
+            ? Math.max(...grades).toFixed(1)
+            : 'N/A';
+        
+        const minGrade = grades.length > 0 
+            ? Math.min(...grades).toFixed(1)
+            : 'N/A';
+        
+        // Get unique categories
+        const categories = [...new Set(features.map(f => f.category).filter(c => c))];
+        const categoryText = categories.length > 0 
+            ? categories.join(', ')
+            : 'Various';
+        
+        // Build HTML response
+        let html = '<div style="margin-bottom: 12px;">';
+        html += `<h3 style="margin: 0 0 8px 0;">📍 Filtered Results</h3>`;
+        html += `<p style="margin: 4px 0;"><strong>${afterCount} locations</strong> (filtered from ${beforeCount})</p>`;
+        
+        // Filter criteria summary
+        if (criteria.gradeMin || criteria.gradeMax || criteria.topN || criteria.locationName) {
+            html += '<p style="margin: 4px 0; color: #666; font-size: 14px;">';
+            if (criteria.locationName) {
+                html += `Location: <em>${criteria.locationName}</em>`;
+                if (criteria.gradeMin || criteria.gradeMax || criteria.topN) html += ' • ';
+            }
+            if (criteria.gradeMin) {
+                html += `Grade ≥ ${criteria.gradeMin}`;
+                if (criteria.gradeMax || criteria.topN) html += ' • ';
+            }
+            if (criteria.gradeMax) {
+                html += `Grade ≤ ${criteria.gradeMax}`;
+                if (criteria.topN) html += ' • ';
+            }
+            if (criteria.topN) {
+                html += `Top ${criteria.topN} by grade`;
+            }
+            html += '</p>';
+        }
+        
+        html += '</div>';
+        
+        // Statistics table
+        html += '<table style="width: 100%; margin-bottom: 12px; border-collapse: collapse;">';
+        html += '<tbody>';
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Categories:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${categoryText}</td></tr>`;
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Average Grade:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${avgGrade}/100</td></tr>`;
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Grade Range:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${minGrade} - ${maxGrade}</td></tr>`;
+        html += '</tbody>';
+        html += '</table>';
+        
+        // Show top locations (up to 10) with EXACT location names
+        const displayCount = Math.min(10, afterCount);
+        if (displayCount > 0) {
+            html += `<div style="margin-bottom: 12px;">`;
+            html += `<p style="margin: 8px 0 4px 0;"><strong>Top ${displayCount} Locations:</strong></p>`;
+            html += '<table class="hoverable-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+            html += '<thead><tr style="background: #f5f5f5;">';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">#</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Location</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Category</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Grade</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            // Sort by grade for display
+            const sortedFeatures = [...features]
+                .filter(f => f.grade !== undefined)
+                .sort((a, b) => parseFloat(b.grade) - parseFloat(a.grade))
+                .slice(0, displayCount);
+            
+            sortedFeatures.forEach((f, idx) => {
+                // Use exact location from data, not generic name
+                const locationName = f.location || f.name || 'Unknown Location';
+                const category = f.category || 'Uncategorized';
+                const grade = parseFloat(f.grade).toFixed(1);
+                const gradeColor = grade >= 80 ? '#2ecc71' : grade >= 70 ? '#3498db' : grade >= 50 ? '#f39c12' : '#e74c3c';
+                
+                // Add data attributes for hover functionality
+                const dataAttr = f.place_id ? `data-place-id="${f.place_id}"` : '';
+                const geoAttr = (f.lat && f.lon) ? `data-lat="${f.lat}" data-lon="${f.lon}"` : '';
+                
+                html += `<tr ${dataAttr} ${geoAttr} style="border-bottom: 1px solid #eee; cursor: pointer;">`;
+                html += `<td style="padding: 6px;">${idx + 1}</td>`;
+                html += `<td style="padding: 6px;">${locationName}</td>`;
+                html += `<td style="padding: 6px;">${category}</td>`;
+                html += `<td style="padding: 6px; font-weight: bold; color: ${gradeColor};">${grade}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody>';
+            html += '</table>';
+            
+            if (afterCount > displayCount) {
+                html += `<p style="margin: 4px 0; color: #666; font-size: 12px; font-style: italic;">...and ${afterCount - displayCount} more locations</p>`;
+            }
+            
+            html += '</div>';
+        }
+        
+        // Extract and display top 5 comments from filtered locations
+        const allComments = [];
+        features.forEach(f => {
+            if (f.comments) {
+                let comments = [];
+                
+                // Handle different comment structures
+                if (Array.isArray(f.comments)) {
+                    comments = f.comments;
+                } else if (typeof f.comments === 'string') {
+                    try {
+                        comments = JSON.parse(f.comments);
+                    } catch {
+                        comments = [{ text: f.comments }];
+                    }
+                } else if (typeof f.comments === 'object') {
+                    comments = [f.comments];
+                }
+                
+                // Extract comment text and associate with location
+                comments.forEach(comment => {
+                    const commentText = comment.text || comment.content || comment.comment_text || comment;
+                    if (commentText && typeof commentText === 'string') {
+                        allComments.push({
+                            text: commentText,
+                            location: f.location || f.name || 'Unknown',
+                            grade: parseFloat(f.grade) || 0,
+                            relevance: comment.relevance_score || 0
+                        });
+                    }
+                });
+            }
+        });
+        
+        // Show top 5 comments if available
+        if (allComments.length > 0) {
+            html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 2px solid #e0e0e0;">';
+            html += '<p style="margin: 8px 0 8px 0; font-weight: bold; font-size: 14px;">💬 Top 5 Comments from Selected Locations:</p>';
+            
+            // Sort by relevance score first, then by location grade
+            const topComments = allComments
+                .sort((a, b) => {
+                    // First by relevance if available
+                    if (b.relevance !== a.relevance) {
+                        return b.relevance - a.relevance;
+                    }
+                    // Then by grade
+                    return b.grade - a.grade;
+                })
+                .slice(0, 5);
+            
+            topComments.forEach((comment, idx) => {
+                html += '<div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-left: 3px solid #3498db; border-radius: 4px;">';
+                html += `<p style="margin: 0 0 4px 0; font-size: 12px; color: #666; font-weight: 600;">`;
+                html += `<span style="color: #3498db;">📍 ${comment.location}</span>`;
+                if (comment.grade > 0) {
+                    const gradeColor = comment.grade >= 80 ? '#2ecc71' : comment.grade >= 70 ? '#3498db' : '#f39c12';
+                    html += ` <span style="color: ${gradeColor}; font-weight: bold;">(${comment.grade.toFixed(1)})</span>`;
+                }
+                html += '</p>';
+                html += `<p style="margin: 4px 0 0 0; font-size: 13px; line-height: 1.5; color: #333;">"${comment.text}"</p>`;
+                html += '</div>';
+            });
+            
+            if (allComments.length > 5) {
+                html += `<p style="margin: 4px 0; color: #666; font-size: 12px; font-style: italic;">...and ${allComments.length - 5} more comments</p>`;
+            }
+            
+            html += '</div>';
+        }
+        
+        // Footer message
+        html += '<p style="margin-top: 12px; padding: 8px; background: #f0f8ff; border-left: 3px solid #3498db; font-size: 13px;">';
+        html += '<strong>💡 Tip:</strong> You can continue filtering these results, or <em>zoom out / change category to reset</em>.';
+        html += '</p>';
+        
+        return html;
+    }
+    
+    /**
+     * Detect if query is a follow-up filter that should work on existing points
+     */
+    function isClientSideFilter(query) {
+        const q = query.toLowerCase();
+        const filterKeywords = [
+            'rated', 'grade', 'above', 'below', 'over', 'under',
+            'top ', 'best', 'worst', 'highest', 'lowest',
+            'show me the', 'filter', 'only', 'just',
+            'which ones', 'which one', 'among', 'from these',
+            'this point', 'this location', 'this place',
+            'that point', 'that location', 'that place',
+            'tell me about', 'what about', 'show me just'
+        ];
+        return filterKeywords.some(keyword => q.includes(keyword));
+    }
+    
+    /**
+     * Parse filter criteria from query
+     */
+    function parseFilterCriteria(query) {
+        const q = query.toLowerCase();
+        const criteria = {};
+        
+        // Grade filters
+        const gradeAboveMatch = q.match(/(?:above|over|greater than)\s+(\d+)/);
+        const gradeBelowMatch = q.match(/(?:below|under|less than)\s+(\d+)/);
+        const gradeExactMatch = q.match(/(?:grade|rated)\s+(\d+)/);
+        
+        if (gradeAboveMatch) {
+            criteria.gradeMin = parseInt(gradeAboveMatch[1]);
+        } else if (gradeBelowMatch) {
+            criteria.gradeMax = parseInt(gradeBelowMatch[1]);
+        } else if (gradeExactMatch) {
+            criteria.gradeMin = parseInt(gradeExactMatch[1]);
+        } else if (q.includes('highly rated') || q.includes('high grade')) {
+            criteria.gradeMin = 70;
+        } else if (q.includes('best') || q.includes('top rated')) {
+            criteria.gradeMin = 80;
+        }
+        
+        // Top N filter
+        const topMatch = q.match(/top\s+(\d+)/);
+        if (topMatch) {
+            criteria.topN = parseInt(topMatch[1]);
+        } else if (q.includes('top ') && !topMatch) {
+            criteria.topN = 5; // Default to top 5
+        }
+        
+        // Location name filter - extract specific location mentioned in query
+        // Look for patterns like "show me [location]", "tell me about [location]", "what about [location]"
+        const locationPatterns = [
+            /(?:show me|tell me about|what about|show just|show only)\s+(.+?)(?:\s+point|\s+location|\s+place|$)/i,
+            /(?:this|that)\s+(?:point|location|place)\s+(?:called|named)?\s*(.+)/i
+        ];
+        
+        for (const pattern of locationPatterns) {
+            const match = query.match(pattern);
+            if (match && match[1]) {
+                const locationName = match[1].trim();
+                // Clean up common words
+                const cleanName = locationName
+                    .replace(/\b(?:the|a|an|at|in|on)\b/gi, '')
+                    .trim();
+                if (cleanName.length > 2) {
+                    criteria.locationName = cleanName;
+                    break;
+                }
+            }
+        }
+        
+        return criteria;
+    }
+    
+    /**
+     * Apply filter criteria to features
+     */
+    function applyClientSideFilter(features, criteria) {
+        let filtered = [...features];
+        
+        // Apply location name filter first (most specific)
+        if (criteria.locationName) {
+            const searchTerm = criteria.locationName.toLowerCase();
+            filtered = filtered.filter(f => {
+                const location = (f.location || f.name || '').toLowerCase();
+                // Check if location contains the search term
+                return location.includes(searchTerm);
+            });
+            console.log(`Location filter "${criteria.locationName}": ${filtered.length} matches`);
+        }
+        
+        // Apply grade filters
+        if (criteria.gradeMin !== undefined) {
+            filtered = filtered.filter(f => {
+                const grade = parseFloat(f.grade);
+                return !isNaN(grade) && grade >= criteria.gradeMin;
+            });
+        }
+        
+        if (criteria.gradeMax !== undefined) {
+            filtered = filtered.filter(f => {
+                const grade = parseFloat(f.grade);
+                return !isNaN(grade) && grade <= criteria.gradeMax;
+            });
+        }
+        
+        // Apply top N filter (sort by grade DESC and take top N)
+        if (criteria.topN !== undefined) {
+            filtered = filtered
+                .filter(f => f.grade !== undefined && !isNaN(parseFloat(f.grade)))
+                .sort((a, b) => parseFloat(b.grade) - parseFloat(a.grade))
+                .slice(0, criteria.topN);
+        }
+        
+        return filtered;
+    }
+    
+    /**
+     * Check if zoom has changed significantly (>25%)
+     */
+    function hasZoomChangedSignificantly() {
+        if (lastZoomLevel === null) {
+            return false;
+        }
+        const currentZoom = map.getZoom();
+        const zoomChange = Math.abs(currentZoom - lastZoomLevel) / lastZoomLevel;
+        return zoomChange > zoomResetThreshold;
+    }
+    
+    /**
+     * Reset filtering state
+     */
+    function resetFilteringState() {
+        activeFilters = [];
+        mapState.features = [...originalFullDataset];
+        lastZoomLevel = map.getZoom();
+        console.log('Filter state reset - showing all original points');
     }
 
     // Loading messages that rotate
@@ -2057,19 +2465,44 @@
                     this.style.cursor = '';
                 });
                 
-                // Click to zoom to location
+                // Click to zoom to location AND highlight
                 row.addEventListener('click', function() {
                     // First try to get geolocation from data attributes
                     const lat = this.getAttribute('data-lat');
                     const lon = this.getAttribute('data-lon');
+                    const location = this.getAttribute('data-location');
+                    const placeId = this.getAttribute('data-place-id');
                     
                     if (lat && lon) {
                         // Use geolocation data directly from database
+                        const feature = {
+                            lat: parseFloat(lat),
+                            lon: parseFloat(lon),
+                            location: location || 'Location',
+                            place_id: placeId
+                        };
+                        
+                        // Highlight the location FIRST
+                        highlightLocationOnMap(feature);
+                        
+                        // Then fly to it
                         map.flyTo({
                             center: [parseFloat(lon), parseFloat(lat)],
                             zoom: 16,
                             duration: 1500
                         });
+                        
+                        // Add visual feedback to the clicked row
+                        // Remove previous selection
+                        document.querySelectorAll('.chat-window tbody tr').forEach(r => {
+                            r.style.backgroundColor = '';
+                            r.classList.remove('selected-location');
+                        });
+                        
+                        // Mark this row as selected
+                        this.style.backgroundColor = '#bbdefb';
+                        this.classList.add('selected-location');
+                        
                     } else {
                         // Fallback: try to match by location name
                         const cells = this.querySelectorAll('td');
@@ -2081,11 +2514,24 @@
                         );
                         
                         if (feature && feature.lat && feature.lon) {
+                            // Highlight the location FIRST
+                            highlightLocationOnMap(feature);
+                            
+                            // Then fly to it
                             map.flyTo({
                                 center: [feature.lon, feature.lat],
                                 zoom: 16,
                                 duration: 1500
                             });
+                            
+                            // Add visual feedback to the clicked row
+                            document.querySelectorAll('.chat-window tbody tr').forEach(r => {
+                                r.style.backgroundColor = '';
+                                r.classList.remove('selected-location');
+                            });
+                            
+                            this.style.backgroundColor = '#bbdefb';
+                            this.classList.add('selected-location');
                         }
                     }
                 });
@@ -2132,7 +2578,25 @@
             highlightMarker.remove();
             highlightMarker = null;
         }
+        
+        // Also clear selected row styling
+        document.querySelectorAll('.chat-window tbody tr.selected-location').forEach(r => {
+            r.style.backgroundColor = '';
+            r.classList.remove('selected-location');
+        });
     }
+    
+    // Clear highlight when clicking on map (not on markers)
+    map.on('click', function(e) {
+        // Check if click was on a marker
+        const features = map.queryRenderedFeatures(e.point);
+        const clickedOnMarker = features.some(f => f.layer && f.layer.id && f.layer.id.includes('marker'));
+        
+        // Only remove highlight if not clicking on a marker
+        if (!clickedOnMarker && highlightMarker) {
+            removeMapHighlight();
+        }
+    });
 
     function scrollToBottom() {
         chatWindow.scrollTo({ top: chatWindow.scrollHeight, behavior: "smooth" });
@@ -3065,7 +3529,7 @@
     async function captureAllVisualizationModes() {
         const screenshots = {};
         const originalMode = currentVizMode;
-        const modes = ['mapbox', 'scatter', 'heatmap', 'chloropleth'];
+        const modes = ['mapbox', 'scatter', 'heatmap', 'hexagon'];
         
         console.log('DEBUG: Capturing all visualization modes...');
         
@@ -3077,22 +3541,57 @@
                 setVizMode(mode);
                 
                 // Wait for rendering to complete
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                // Force render
+                // Force render and ensure map is ready
                 map.resize();
+                
+                // Wait for map to finish rendering (tiles loaded)
+                await waitForMapToRender();
+                
                 if (mode === 'mapbox') {
                     renderMapboxMarkers();
+                    // Extra wait for markers to render
+                    await new Promise(resolve => setTimeout(resolve, 800));
                 } else {
+                    // Update deck.gl layers
                     updateDeckLayers();
+                    console.log('DEBUG: Called updateDeckLayers()');
+                    
+                    // Extra wait for deck.gl layers - INCREASED
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Force deck.gl to redraw MULTIPLE times
+                    if (deckOverlay && deckOverlay.deck) {
+                        console.log('DEBUG: Forcing deck.gl redraw (1/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        console.log('DEBUG: Forcing deck.gl redraw (2/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        console.log('DEBUG: Forcing deck.gl redraw (3/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    } else {
+                        console.error('ERROR: deckOverlay or deckOverlay.deck is undefined!');
+                    }
                 }
                 
-                // Wait a bit more for deck.gl to render
+                // Trigger repaint to ensure everything is drawn
+                map.triggerRepaint();
                 await new Promise(resolve => setTimeout(resolve, 300));
                 
-                // Capture screenshot
-                const canvas = map.getCanvas();
-                const screenshot = canvas.toDataURL('image/png', 0.90);
+                // Capture screenshot - handle deck.gl overlay
+                let screenshot;
+                if (mode === 'mapbox') {
+                    // For mapbox mode, capture map + DOM markers
+                    screenshot = await captureMapboxWithMarkers();
+                } else {
+                    // For deck.gl modes, composite the map and deck.gl canvases
+                    screenshot = await captureDeckGLComposite();
+                }
                 screenshots[mode] = screenshot;
                 
                 console.log(`DEBUG: Captured ${mode} screenshot, length: ${screenshot.length}`);
@@ -3113,6 +3612,242 @@
         
         console.log('DEBUG: All visualization modes captured');
         return screenshots;
+    }
+    
+    /**
+     * Wait for map tiles to finish loading
+     */
+    function waitForMapToRender() {
+        return new Promise((resolve) => {
+            // If map is already idle (loaded), resolve immediately
+            if (map.isStyleLoaded() && !map.isMoving()) {
+                console.log('DEBUG: Map already rendered');
+                resolve();
+                return;
+            }
+            
+            // Otherwise wait for idle event
+            const onIdle = () => {
+                console.log('DEBUG: Map finished rendering');
+                map.off('idle', onIdle);
+                resolve();
+            };
+            
+            map.once('idle', onIdle);
+            
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                console.log('DEBUG: Map render timeout, proceeding anyway');
+                map.off('idle', onIdle);
+                resolve();
+            }, 5000);
+        });
+    }
+    
+    /**
+     * Capture composite image of map + deck.gl overlay
+     */
+    async function captureDeckGLComposite() {
+        try {
+            console.log('=== DEBUG: Starting deck.gl composite capture ===');
+            
+            // Get the map canvas
+            const mapCanvas = map.getCanvas();
+            console.log(`DEBUG: Map canvas dimensions: ${mapCanvas.width}x${mapCanvas.height}`);
+            
+            // Verify map canvas has content by checking pixel data
+            const mapCtx = mapCanvas.getContext('2d', { willReadFrequently: true });
+            if (mapCtx) {
+                const mapImageData = mapCtx.getImageData(0, 0, Math.min(100, mapCanvas.width), Math.min(100, mapCanvas.height));
+                const mapHasContent = mapImageData.data.some((value, index) => {
+                    // Check if there are non-transparent pixels
+                    if (index % 4 === 3) { // Alpha channel
+                        return value > 0;
+                    }
+                    return false;
+                });
+                console.log(`DEBUG: Map canvas has visible content: ${mapHasContent}`);
+            }
+            
+            // Find ALL canvases in the map container
+            const mapContainer = document.getElementById('map');
+            const allCanvases = mapContainer.querySelectorAll('canvas');
+            
+            console.log(`DEBUG: Found ${allCanvases.length} total canvas elements in map container`);
+            
+            // Log details of each canvas
+            allCanvases.forEach((canvas, index) => {
+                console.log(`DEBUG: Canvas[${index}]: ${canvas.width}x${canvas.height}, class="${canvas.className}", id="${canvas.id}"`);
+                console.log(`DEBUG: Canvas[${index}] style: ${canvas.style.cssText}`);
+            });
+            
+            // deck.gl creates a canvas that overlays the map
+            // It should be the second canvas (index 1)
+            let deckCanvas = null;
+            
+            if (allCanvases.length === 1) {
+                console.error('ERROR: Only 1 canvas found - deck.gl canvas missing!');
+                console.error('ERROR: This means deck.gl overlay is not initialized or not rendering');
+                return mapCanvas.toDataURL('image/png', 0.95);
+            }
+            
+            if (allCanvases.length > 1) {
+                // Try canvas at index 1 first (usually deck.gl)
+                deckCanvas = allCanvases[1];
+                console.log(`DEBUG: Using canvas[1] as deck.gl canvas: ${deckCanvas.width}x${deckCanvas.height}`);
+            }
+            
+            if (!deckCanvas) {
+                console.error('ERROR: deck.gl canvas not found after checking all canvases');
+                return mapCanvas.toDataURL('image/png', 0.95);
+            }
+            
+            // Check if deck.gl canvas dimensions match map canvas
+            if (deckCanvas.width !== mapCanvas.width || deckCanvas.height !== mapCanvas.height) {
+                console.warn(`WARNING: deck.gl canvas dimensions (${deckCanvas.width}x${deckCanvas.height}) don't match map canvas (${mapCanvas.width}x${mapCanvas.height})`);
+            }
+            
+            // Try to read pixel data from deck.gl canvas to verify it has content
+            // Note: WebGL canvases need to use toDataURL or read pixels differently
+            try {
+                // For WebGL canvas, we can't use getImageData, so we'll create a test image
+                const testDataUrl = deckCanvas.toDataURL('image/png', 0.1);
+                console.log(`DEBUG: deck.gl canvas toDataURL succeeded, length: ${testDataUrl.length}`);
+                
+                // If the data URL is very small, it might be empty
+                if (testDataUrl.length < 1000) {
+                    console.error('ERROR: deck.gl canvas toDataURL returned very small image - likely empty!');
+                }
+            } catch (e) {
+                console.error('ERROR: Cannot read deck.gl canvas - preserveDrawingBuffer may not be working:', e);
+            }
+            
+            // Create a composite canvas
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = mapCanvas.width;
+            compositeCanvas.height = mapCanvas.height;
+            const ctx = compositeCanvas.getContext('2d');
+            
+            // Set white background (in case map has transparency)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+            console.log('DEBUG: Drew white background');
+            
+            // Draw map canvas first (base layer)
+            ctx.drawImage(mapCanvas, 0, 0);
+            console.log('DEBUG: Drew map canvas onto composite');
+            
+            // Draw deck.gl canvas on top (overlay)
+            ctx.drawImage(deckCanvas, 0, 0);
+            console.log('DEBUG: Drew deck.gl canvas onto composite');
+            
+            console.log('=== DEBUG: Successfully composited map and deck.gl canvases ===');
+            
+            // Convert to data URL with high quality
+            const dataUrl = compositeCanvas.toDataURL('image/png', 0.95);
+            console.log(`DEBUG: Generated composite image, length: ${dataUrl.length}`);
+            
+            // Sanity check: if composite is similar size to map-only, deck.gl might be empty
+            const mapOnlyUrl = mapCanvas.toDataURL('image/png', 0.95);
+            if (Math.abs(dataUrl.length - mapOnlyUrl.length) < 1000) {
+                console.warn('WARNING: Composite image is similar size to map-only - deck.gl layer might be empty!');
+            }
+            
+            return dataUrl;
+        } catch (error) {
+            console.error('ERROR: Failed to create composite screenshot:', error);
+            console.error(error.stack);
+            // Fallback to map canvas only
+            const canvas = map.getCanvas();
+            return canvas.toDataURL('image/png', 0.95);
+        }
+    }
+    
+    /**
+     * Capture map with Mapbox DOM markers rendered on canvas
+     */
+    async function captureMapboxWithMarkers() {
+        try {
+            console.log('DEBUG: Capturing mapbox with markers...');
+            
+            // Get the map canvas
+            const mapCanvas = map.getCanvas();
+            console.log(`DEBUG: Map canvas dimensions: ${mapCanvas.width}x${mapCanvas.height}`);
+            
+            // Create a composite canvas
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = mapCanvas.width;
+            compositeCanvas.height = mapCanvas.height;
+            const ctx = compositeCanvas.getContext('2d');
+            
+            // Draw the map canvas first
+            ctx.drawImage(mapCanvas, 0, 0);
+            console.log('DEBUG: Drew map canvas');
+            
+            // Get all marker DOM elements
+            const mapContainer = document.getElementById('map');
+            const markerElements = mapContainer.querySelectorAll('.mapboxgl-marker');
+            console.log(`DEBUG: Found ${markerElements.length} marker elements`);
+            
+            // Draw each marker on the canvas
+            let markersRendered = 0;
+            for (const markerEl of markerElements) {
+                try {
+                    // Get marker position
+                    const transform = markerEl.style.transform;
+                    const translateMatch = transform.match(/translate\((-?\d+\.?\d*)px,\s*(-?\d+\.?\d*)px\)/);
+                    
+                    if (translateMatch) {
+                        const x = parseFloat(translateMatch[1]);
+                        const y = parseFloat(translateMatch[2]);
+                        
+                        // Get the SVG inside the marker
+                        const svg = markerEl.querySelector('svg');
+                        if (svg) {
+                            // Create an image from the SVG
+                            const svgData = new XMLSerializer().serializeToString(svg);
+                            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                            const svgUrl = URL.createObjectURL(svgBlob);
+                            
+                            // Load and draw the SVG
+                            const img = new Image();
+                            await new Promise((resolve, reject) => {
+                                img.onload = () => {
+                                    // Adjust for anchor point (markers are anchored at bottom center)
+                                    const anchorX = x;
+                                    const anchorY = y - img.height;
+                                    
+                                    ctx.drawImage(img, anchorX, anchorY, img.width, img.height);
+                                    URL.revokeObjectURL(svgUrl);
+                                    markersRendered++;
+                                    resolve();
+                                };
+                                img.onerror = () => {
+                                    URL.revokeObjectURL(svgUrl);
+                                    reject(new Error('Failed to load marker SVG'));
+                                };
+                                img.src = svgUrl;
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to render marker:', error);
+                    // Continue with other markers
+                }
+            }
+            
+            console.log(`DEBUG: Successfully rendered ${markersRendered} markers on canvas`);
+            
+            // Convert to data URL
+            const dataUrl = compositeCanvas.toDataURL('image/png', 0.95);
+            console.log(`DEBUG: Generated composite image with markers, length: ${dataUrl.length}`);
+            return dataUrl;
+        } catch (error) {
+            console.error('ERROR: Failed to capture mapbox with markers:', error);
+            // Fallback to map canvas only
+            const canvas = map.getCanvas();
+            return canvas.toDataURL('image/png', 0.95);
+        }
     }
     
     /**

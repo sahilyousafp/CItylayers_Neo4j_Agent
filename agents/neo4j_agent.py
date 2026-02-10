@@ -100,6 +100,43 @@ RETURN DISTINCT p, c, pg, co
 ```
 This ensures only places WITH that category are returned (not places where c is None).
 
+For Grade/Rating Filtering - CRITICAL:
+When the query mentions grades, ratings, or quality levels, you MUST filter by pg.grade:
+- Keywords: "high", "best", "top", "above", "over", "greater than", "rated", "grade", "low", "worst", "below", "under", "less than"
+- Grade scale: 0-100 (stored in pg.grade property)
+- Numeric thresholds:
+  * "above 80" or "over 80" → pg.grade > 80
+  * "at least 70" or "70+" → pg.grade >= 70
+  * "below 50" → pg.grade < 50
+  * "high" or "highly rated" → pg.grade >= 70
+  * "best" or "top" → pg.grade >= 80
+  * "low" or "poorly rated" → pg.grade <= 30
+- ALWAYS use MATCH (not OPTIONAL MATCH) for place_grades when filtering by grade:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+  AND c.category_id = X
+  AND pg.grade >= 70
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+ORDER BY pg.grade DESC
+```
+- For queries WITHOUT category filter but WITH grade filter, use:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)
+WHERE p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+  AND pg.grade >= 80
+OPTIONAL MATCH (pg)-[:OF_CATEGORY]->(c:categories)
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+ORDER BY pg.grade DESC
+```
+- For "best" or "top X", add ORDER BY pg.grade DESC and LIMIT X
+- For "worst" or "lowest X", add ORDER BY pg.grade ASC and LIMIT X
+- IMPORTANT: Extract numeric values from the query (e.g., "above 80" → 80) and use them directly in pg.grade comparisons
+
 User Question: {question}
 
 Map Context: {map_bounds_info}
@@ -297,6 +334,9 @@ Now provide your answer based on the database results above:
 - Keep your response focused on the DATABASE RESULTS provided
 - DO NOT make up information about specific places - stick to the data
 - Additional context about landmarks may be provided separately
+- **IMPORTANT for Transport Data:** When mentioning bus stops, train stations, or any transport stops, ALWAYS use the station/stop NAME, NEVER use IDs or numbers
+  - ✅ Correct: "Westbahnhof", "Stephansplatz", "Karlsplatz"
+  - ❌ Wrong: "station_12345", "stop ID 67890", "bus stop #42"
 
 **Example Output (Area Query):**
 ```
@@ -694,6 +734,8 @@ class Neo4jAgent(BaseAgent):
 - Include relevant statistics from each dataset
 - Highlight cross-dataset correlations when meaningful
 - Keep tone friendly and accessible for general public
+- **IMPORTANT:** When mentioning transport stations, ALWAYS use the station NAME, NEVER use station IDs or numbers
+- Example: "Westbahnhof" not "station_12345" or "ID: 67890"
 
 Now provide your analysis:"""
 
@@ -771,14 +813,26 @@ Now provide your analysis:"""
         # Transport data
         if aggregated_context["transport"]["enabled"] and aggregated_context["transport"]["count"] > 0:
             transport_data = aggregated_context["transport"]["data"]
-            context_parts.append(f"\n### Transport Stations ({len(transport_data)} stations)")
-            # Group by type
+            context_parts.append(f"\n### Transport Stations ({len(transport_data)} stations nearby)")
+            
+            # Group by type and show station names
             by_type = {}
             for station in transport_data:
                 station_type = station.get("type", "Unknown")
-                by_type[station_type] = by_type.get(station_type, 0) + 1
-            for stype, count in sorted(by_type.items()):
-                context_parts.append(f"- {stype.capitalize()}: {count} stations")
+                station_name = station.get("name", "Unnamed Stop")
+                
+                if station_type not in by_type:
+                    by_type[station_type] = []
+                by_type[station_type].append(station_name)
+            
+            # Format with station names instead of just counts
+            for stype, stations in sorted(by_type.items()):
+                context_parts.append(f"\n**{stype.capitalize()} Stations ({len(stations)}):**")
+                # Show up to 10 station names per type
+                for station_name in stations[:10]:
+                    context_parts.append(f"  - {station_name}")
+                if len(stations) > 10:
+                    context_parts.append(f"  - ... and {len(stations) - 10} more {stype} stations")
         
         # Vegetation data
         if aggregated_context["vegetation"]["enabled"] and aggregated_context["vegetation"]["count"] > 0:
@@ -838,12 +892,70 @@ Now provide your analysis:"""
         return "\n".join(summary_parts) if summary_parts else "Data available"
 
     def _enhance_query_with_history(self, query: str, chat_history: List[Tuple[str, str]]) -> str:
+        """
+        Enhance query with chat history context.
+        Helps with follow-up questions by providing previous context.
+        """
         if chat_history:
             context_text = "\n".join(
                 [f"Previous Q: {q}\nPrevious A: {a}" for q, a in chat_history[-2:]]
             )
             return f"{context_text}\n\nCurrent question: {query}"
         return query
+    
+    def _is_follow_up_query(self, query: str, chat_history: List[Tuple[str, str]]) -> bool:
+        """
+        Detect if this is a follow-up question that should filter existing results.
+        
+        Examples of follow-up queries:
+        - "Which ones are highly rated?" (filters current results)
+        - "Show me the top 5" (filters current results)
+        - "Only the ones with good reviews" (filters current results)
+        - "What about the expensive ones?" (filters current results)
+        
+        Returns:
+            True if this query should filter existing data, False for new query
+        """
+        if not chat_history:
+            return False
+        
+        query_lower = query.lower().strip()
+        
+        # Indicators of follow-up filtering (pronouns referring to previous results)
+        follow_up_indicators = [
+            'which ones',
+            'which one',
+            'how many of them',
+            'how many of these',
+            'among them',
+            'among these',
+            'from these',
+            'from those',
+            'of them',
+            'of these',
+            'of those',
+            'only the',
+            'only those',
+            'filter',
+            'narrow down',
+            'top ',
+            'best ',
+            'highest',
+            'lowest',
+            'most',
+            'least'
+        ]
+        
+        # Check if query contains follow-up indicators
+        has_indicator = any(indicator in query_lower for indicator in follow_up_indicators)
+        
+        # Check if query is very short (likely referencing previous context)
+        is_short = len(query_lower.split()) <= 8
+        
+        # Check if starts with comparison words
+        starts_with_comparison = query_lower.startswith(('which', 'what about', 'how about', 'show me the'))
+        
+        return has_indicator or (is_short and starts_with_comparison)
 
     def _get_map_bounds_prompt(self, map_context: Dict[str, Any], category_filter: str = None) -> str:
         prompt_parts = []
