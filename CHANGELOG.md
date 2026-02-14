@@ -15,7 +15,7 @@
 #### Visualization Improvements
 - ✅ **Overlay on 3D buildings** - All visualizations now render above buildings (interleaved: false)
 - ✅ **Category-based filtering** with dedicated filter button
-- ✅ **Multiple viz modes**: Scatter, Heatmap, Arc Network, Choropleth
+- ✅ **Multiple viz modes**: Scatter, Heatmap, Arc Network, Hexagon
 - ✅ **Theme switching**: Light/Dark mode support
 
 ### Technical Changes
@@ -70,7 +70,7 @@
 - Scatter plot by category
 - Heatmap (density-based)
 - Arc connections (high-grade network)
-- Choropleth with H3 hexagons
+- Hexagon with H3 hexagons
 
 ---
 
