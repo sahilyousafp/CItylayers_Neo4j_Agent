@@ -100,6 +100,43 @@ RETURN DISTINCT p, c, pg, co
 ```
 This ensures only places WITH that category are returned (not places where c is None).
 
+For Grade/Rating Filtering - CRITICAL:
+When the query mentions grades, ratings, or quality levels, you MUST filter by pg.grade:
+- Keywords: "high", "best", "top", "above", "over", "greater than", "rated", "grade", "low", "worst", "below", "under", "less than"
+- Grade scale: 0-100 (stored in pg.grade property)
+- Numeric thresholds:
+  * "above 80" or "over 80" → pg.grade > 80
+  * "at least 70" or "70+" → pg.grade >= 70
+  * "below 50" → pg.grade < 50
+  * "high" or "highly rated" → pg.grade >= 70
+  * "best" or "top" → pg.grade >= 80
+  * "low" or "poorly rated" → pg.grade <= 30
+- ALWAYS use MATCH (not OPTIONAL MATCH) for place_grades when filtering by grade:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)-[:OF_CATEGORY]->(c:categories)
+WHERE p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+  AND c.category_id = X
+  AND pg.grade >= 70
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+ORDER BY pg.grade DESC
+```
+- For queries WITHOUT category filter but WITH grade filter, use:
+```
+MATCH (p:places)<-[:ASSOCIATED_WITH]-(pg:place_grades)
+WHERE p.latitude >= south AND p.latitude <= north
+  AND p.longitude >= west AND p.longitude <= east
+  AND pg.grade >= 80
+OPTIONAL MATCH (pg)-[:OF_CATEGORY]->(c:categories)
+OPTIONAL MATCH (co:comments)-[:ABOUT]->(p)
+RETURN DISTINCT p, c, pg, co
+ORDER BY pg.grade DESC
+```
+- For "best" or "top X", add ORDER BY pg.grade DESC and LIMIT X
+- For "worst" or "lowest X", add ORDER BY pg.grade ASC and LIMIT X
+- IMPORTANT: Extract numeric values from the query (e.g., "above 80" → 80) and use them directly in pg.grade comparisons
+
 User Question: {question}
 
 Map Context: {map_bounds_info}
@@ -128,8 +165,10 @@ Database Results:
    | **Highest Rated** | Location name (X.X/10) |
    
    - **Key Highlights:** 3-4 bullet points with interesting findings
-   - **Top 5 Comments from this Region:** (if available)
-     - "Comment text" - *Location Name* (Rating: X.X/10)
+   - **Top 5 Relevant Comments from this Region:** (if available)
+     - Show comments that best match the context of the user's question
+     - Do NOT sort by rating - show contextually relevant comments
+     - Format: "Comment text" - *Location Name*
    - Keep under 250 words total
    - Use **bold** for important numbers, ratings, and category names
 
@@ -141,12 +180,100 @@ Database Results:
    |----------|---------|
    | 📍 **Location** | Full address |
    | 🏷️ **Category** | Category name |
-   | ⭐ **Rating** | X.X out of 10 |
+   | ⭐ **Rating** | XX out of 100 |
    | 📝 **What it's about** | Brief description in simple terms |
    
    - **About this location:** 1-2 sentences explaining what makes it special
    
-   - **💬 Top 5 Visitor Comments:** (if comments available)
+   - **💬 Top 5 Relevant Visitor Comments:** (if comments available)
+     1. "Comment text" - *Context or Detail*
+     2. "Comment text" - *Context or Detail*
+     3. ...
+     
+   - **What makes it special:**  
+     - 3-4 bullet points highlighting unique features
+   
+   - Keep simple and scannable
+   - Use emojis sparingly for visual hierarchy
+
+3. **Comment Selection - IMPORTANT:**
+   - Show comments that are RELEVANT to the user's question context
+   - If the user asks about "beauty", prioritize comments mentioning aesthetics, views, architecture
+   - If asking about "transport", prioritize comments about accessibility, transit connections
+   - If asking about "safety", prioritize comments mentioning security, crime, lighting
+   - Do NOT just show highest-rated location comments
+   - Do NOT mention ratings or scores in comment display
+   - Focus on comments that answer the user's specific interest
+
+4. **General Style:**
+- Always include **Top 5 Relevant Comments** when available
+- Focus on "what" and "why" - help people understand what they're looking at
+- Add context: explain what categories mean, why ratings matter
+- Use simple words: "places" not "locations", "rating" not "grade"
+- If showing comments, include location name for context
+- DO NOT mention map UI interactions or technical database terms
+- If no results: suggest alternatives in a helpful, friendly way
+- Keep your response focused on the DATABASE RESULTS provided
+- DO NOT make up information about specific places - stick to the data
+- Additional context about landmarks may be provided separately
+
+**Example Output (Area Query):**
+```
+### 📍 Vienna District 1
+
+This central historic district offers **exceptional urban quality** with beautiful architecture, excellent transit, and vibrant public spaces.
+
+| Metric | Value |
+|--------|-------|
+| **Total Places** | **523** locations 🌟 |
+| **Most Common** | Movement (**156** places, 30%) |
+| **Average Rating** | **7.8** out of 10 ⭐ |
+| **Highest Rated** | **Stephansplatz** (9.2/10) 🏆 |
+
+**Key Highlights:**
+- **Movement** and **Beauty** are the strongest categories here
+- Over **200 places** rated above **8.0** - great quality overall!
+- The historic core has the **highest concentration** of top-rated spots
+- **Protection** ratings range from 5.2 to 9.8, showing variety in safety perceptions
+
+**Top 5 Relevant Comments from this Region:**
+1. "Absolutely stunning architecture and atmosphere!" - *Stephansplatz*
+2. "Great public transport connections, very easy to get around" - *Karlsplatz*
+3. "Beautiful pedestrian areas with lots of cafes" - *Graben Street*
+4. "Can get crowded with tourists during summer" - *Stephansplatz*
+5. "Well-maintained parks and green spaces" - *Stadtpark*
+```
+
+**Example 2 (Specific Location):**
+```
+### 📍 Stephansplatz
+
+| Property | Details |
+|----------|---------|
+| 📍 **Location** | Stephansplatz 3, 1010 Vienna, Austria |
+| 🏷️ **Category** | **Beauty** |
+| ⭐ **Rating** | **9.2** out of 10 |
+| 📝 **What it's about** | Vienna's most famous public square with stunning Gothic cathedral |
+
+**About this location:**
+**Stephansplatz** is the heart of Vienna's historic center, featuring the magnificent **St. Stephen's Cathedral**. This medieval square attracts visitors from around the world and consistently ranks as one of **Vienna's most beautiful** locations.
+
+**💬 Top 5 Relevant Visitor Comments:**
+1. "Absolutely breathtaking architecture, especially the cathedral!"
+2. "Perfect central meeting point with amazing atmosphere"
+3. "Best at night when the cathedral is lit up"
+4. "Can be very crowded, but worth visiting early morning"
+5. "Great street performers and energy, very photogenic"
+
+**What makes it special:**
+- **Gothic cathedral** dating back to the 12th century
+- **Bustling pedestrian zone** with street performers daily
+- Central **meeting point** and top tourist destination
+- Surrounded by **luxury shops** and historic buildings
+- **Excellent transit access** (U1, U3 metro lines)
+```
+
+Now provide your answer based on the database results above:
      1. "Comment text" - *Date or Context*
      2. "Comment text" - *Date or Context*
      3. (etc.)
@@ -207,6 +334,9 @@ Database Results:
 - Keep your response focused on the DATABASE RESULTS provided
 - DO NOT make up information about specific places - stick to the data
 - Additional context about landmarks may be provided separately
+- **IMPORTANT for Transport Data:** When mentioning bus stops, train stations, or any transport stops, ALWAYS use the station/stop NAME, NEVER use IDs or numbers
+  - ✅ Correct: "Westbahnhof", "Stephansplatz", "Karlsplatz"
+  - ❌ Wrong: "station_12345", "stop ID 67890", "bus stop #42"
 
 **Example Output (Area Query):**
 ```
@@ -559,13 +689,273 @@ class Neo4jAgent(BaseAgent):
                 "context_records": [],
             }
 
+    def process_multi_dataset(
+        self,
+        query: str,
+        aggregated_context: Dict[str, Any],
+        chat_history: List[Tuple[str, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Process a query that involves multiple datasets (CityLayers + external sources).
+        Enhances the answer with cross-dataset insights.
+        
+        Args:
+            query: Natural language question
+            aggregated_context: Context from multiple data sources
+            chat_history: Optional conversation history
+            
+        Returns:
+            Dictionary with enhanced answer considering all datasets
+        """
+        try:
+            # Enhanced QA template for multi-dataset analysis
+            enhanced_template = """You are a helpful location assistant analyzing data from multiple sources. You have access to:
+
+**Available Data Sources:**
+{data_sources_summary}
+
+**User Question:** {question}
+
+**Data from All Sources:**
+{context}
+
+**Response Guidelines:**
+1. **Identify Relevant Datasets**: Determine which datasets are most relevant to the user's question
+2. **Cross-Dataset Insights**: When multiple datasets are relevant, provide insights that connect them
+   - Example: "Beautiful places near transport stations"
+   - Example: "Parks with good weather conditions"
+   - Example: "Areas with many trees and high beauty ratings"
+3. **Clear Source Attribution**: When mentioning data, indicate which source it comes from
+4. **Prioritize User Intent**: Focus on what the user is actually asking for
+5. **Be Concise**: Don't overload with irrelevant data from unused sources
+
+**Formatting:**
+- Use markdown for structure (headers, tables, bullet points)
+- Include relevant statistics from each dataset
+- Highlight cross-dataset correlations when meaningful
+- Keep tone friendly and accessible for general public
+- **IMPORTANT:** When mentioning transport stations, ALWAYS use the station NAME, NEVER use station IDs or numbers
+- Example: "Westbahnhof" not "station_12345" or "ID: 67890"
+
+Now provide your analysis:"""
+
+            # Format the prompt
+            formatted_prompt = enhanced_template.format(
+                data_sources_summary=self._format_data_sources_summary(aggregated_context),
+                question=query,
+                context=self._format_multi_dataset_context(aggregated_context)
+            )
+            
+            print(f"DEBUG: Processing multi-dataset query with {len([s for s in aggregated_context.values() if s['enabled']])} enabled sources")
+            
+            # Invoke LLM
+            llm_response = self.llm.invoke(formatted_prompt)
+            answer = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+            
+            # Clean up answer
+            if isinstance(answer, dict) and 'text' in answer:
+                answer = answer['text']
+            elif isinstance(answer, str) and answer.startswith('{'):
+                try:
+                    import json
+                    parsed = json.loads(answer)
+                    if isinstance(parsed, dict) and 'text' in parsed:
+                        answer = parsed['text']
+                except:
+                    pass
+            
+            answer = str(answer).strip()
+            
+            print(f"✅ Multi-dataset analysis complete")
+            
+            return {
+                "ok": True,
+                "answer": answer
+            }
+            
+        except Exception as e:
+            print(f"ERROR in multi-dataset processing: {e}")
+            return {
+                "ok": False,
+                "error": str(e)
+            }
+
+    def _format_data_sources_summary(self, aggregated_context: Dict[str, Any]) -> str:
+        """Format a summary of available data sources."""
+        summary_lines = []
+        for source, info in aggregated_context.items():
+            if info["enabled"]:
+                source_name = source.capitalize()
+                count = info["count"]
+                summary_lines.append(f"- **{source_name}**: {count} records available")
+        return "\n".join(summary_lines) if summary_lines else "No data sources enabled"
+
+    def _format_multi_dataset_context(self, aggregated_context: Dict[str, Any]) -> str:
+        """Format the aggregated context for LLM consumption."""
+        context_parts = []
+        
+        # CityLayers data
+        if aggregated_context["citylayers"]["enabled"] and aggregated_context["citylayers"]["count"] > 0:
+            citylayers_data = aggregated_context["citylayers"]["data"]
+            context_parts.append(f"### CityLayers Database ({len(citylayers_data)} locations)")
+            context_parts.append(self._summarize_citylayers_data(citylayers_data))
+        
+        # Weather data
+        if aggregated_context["weather"]["enabled"] and aggregated_context["weather"]["count"] > 0:
+            weather_data = aggregated_context["weather"]["data"]
+            if isinstance(weather_data, dict) and "summary" in weather_data:
+                summary = weather_data["summary"]
+                context_parts.append(f"\n### Weather Data")
+                context_parts.append(f"- Average Temperature: {summary.get('avg_temperature', 'N/A'):.1f}°C")
+                context_parts.append(f"- Temperature Range: {summary.get('min_temperature', 'N/A'):.1f}°C to {summary.get('max_temperature', 'N/A'):.1f}°C")
+                context_parts.append(f"- Average Wind Speed: {summary.get('avg_wind_speed', 'N/A'):.1f} m/s")
+        
+        # Transport data
+        if aggregated_context["transport"]["enabled"] and aggregated_context["transport"]["count"] > 0:
+            transport_data = aggregated_context["transport"]["data"]
+            context_parts.append(f"\n### Transport Stations ({len(transport_data)} stations nearby)")
+            
+            # Group by type and show station names
+            by_type = {}
+            for station in transport_data:
+                station_type = station.get("type", "Unknown")
+                station_name = station.get("name", "Unnamed Stop")
+                
+                if station_type not in by_type:
+                    by_type[station_type] = []
+                by_type[station_type].append(station_name)
+            
+            # Format with station names instead of just counts
+            for stype, stations in sorted(by_type.items()):
+                context_parts.append(f"\n**{stype.capitalize()} Stations ({len(stations)}):**")
+                # Show up to 10 station names per type
+                for station_name in stations[:10]:
+                    context_parts.append(f"  - {station_name}")
+                if len(stations) > 10:
+                    context_parts.append(f"  - ... and {len(stations) - 10} more {stype} stations")
+        
+        # Vegetation data
+        if aggregated_context["vegetation"]["enabled"] and aggregated_context["vegetation"]["count"] > 0:
+            veg_data = aggregated_context["vegetation"]["data"]
+            if isinstance(veg_data, dict) and "summary" in veg_data:
+                summary = veg_data["summary"]
+                context_parts.append(f"\n### Vegetation Data")
+                context_parts.append(f"- Total Trees: {summary.get('total_trees', 0)}")
+                context_parts.append(f"- Species Diversity: {summary.get('species_diversity', 0)} different species")
+                if "top_species" in summary:
+                    context_parts.append("- Most Common Species:")
+                    for species, count in summary["top_species"][:5]:
+                        context_parts.append(f"  - {species}: {count} trees")
+        
+        return "\n".join(context_parts) if context_parts else "No data available"
+
+    def _summarize_citylayers_data(self, data: List[Dict]) -> str:
+        """Create a concise summary of CityLayers data."""
+        if not data:
+            return "No locations found"
+        
+        # Extract key info
+        locations = []
+        categories = {}
+        grades = []
+        
+        for record in data[:50]:  # Limit to first 50 for summary
+            if "p" in record:
+                place = record["p"]
+                loc = place.get("location", "Unknown")
+                locations.append(loc)
+                
+                if "grade" in place:
+                    try:
+                        grades.append(float(place["grade"]))
+                    except:
+                        pass
+            
+            if "c" in record and record["c"]:
+                cat = record["c"].get("type", record["c"].get("name", "Unknown"))
+                categories[cat] = categories.get(cat, 0) + 1
+        
+        # Build summary
+        summary_parts = []
+        if grades:
+            avg_grade = sum(grades) / len(grades)
+            summary_parts.append(f"- Average Grade: {avg_grade:.1f}/100")
+        
+        if categories:
+            summary_parts.append("- Categories:")
+            for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]:
+                summary_parts.append(f"  - {cat}: {count} locations")
+        
+        if locations:
+            summary_parts.append(f"- Sample Locations: {', '.join(locations[:5])}")
+        
+        return "\n".join(summary_parts) if summary_parts else "Data available"
+
     def _enhance_query_with_history(self, query: str, chat_history: List[Tuple[str, str]]) -> str:
+        """
+        Enhance query with chat history context.
+        Helps with follow-up questions by providing previous context.
+        """
         if chat_history:
             context_text = "\n".join(
                 [f"Previous Q: {q}\nPrevious A: {a}" for q, a in chat_history[-2:]]
             )
             return f"{context_text}\n\nCurrent question: {query}"
         return query
+    
+    def _is_follow_up_query(self, query: str, chat_history: List[Tuple[str, str]]) -> bool:
+        """
+        Detect if this is a follow-up question that should filter existing results.
+        
+        Examples of follow-up queries:
+        - "Which ones are highly rated?" (filters current results)
+        - "Show me the top 5" (filters current results)
+        - "Only the ones with good reviews" (filters current results)
+        - "What about the expensive ones?" (filters current results)
+        
+        Returns:
+            True if this query should filter existing data, False for new query
+        """
+        if not chat_history:
+            return False
+        
+        query_lower = query.lower().strip()
+        
+        # Indicators of follow-up filtering (pronouns referring to previous results)
+        follow_up_indicators = [
+            'which ones',
+            'which one',
+            'how many of them',
+            'how many of these',
+            'among them',
+            'among these',
+            'from these',
+            'from those',
+            'of them',
+            'of these',
+            'of those',
+            'only the',
+            'only those',
+            'filter',
+            'narrow down',
+            'top ',
+            'best ',
+            'highest',
+            'lowest',
+            'most',
+            'least'
+        ]
+        
+        # Check if query contains follow-up indicators
+        has_indicator = any(indicator in query_lower for indicator in follow_up_indicators)
+        
+        # Check if query is very short (likely referencing previous context)
+        is_short = len(query_lower.split()) <= 8
+        
+        # Check if starts with comparison words
+        starts_with_comparison = query_lower.startswith(('which', 'what about', 'how about', 'show me the'))
+        
+        return has_indicator or (is_short and starts_with_comparison)
 
     def _get_map_bounds_prompt(self, map_context: Dict[str, Any], category_filter: str = None) -> str:
         prompt_parts = []
@@ -738,7 +1128,8 @@ AND p.longitude >= {west} AND p.longitude <= {east}
             if not p:
                 continue
             
-            location_name = p.get('location', 'Unknown Location')
+            # Use precise address if available (from Mapbox), fallback to DB location
+            location_name = record.get('precise_address') or p.get('location', 'Unknown Location')
             lat = p.get('latitude')
             lon = p.get('longitude')
             
@@ -756,12 +1147,33 @@ AND p.longitude >= {west} AND p.longitude <= {east}
             if pg:
                 grade = pg.get('grade') or pg.get('value')
             
+            # Extract comments (if available)
+            comments = []
+            co = record.get('co')
+            if co:
+                # Handle comment data structure
+                if isinstance(co, list):
+                    # List of comments
+                    for comment in co[:5]:  # Take top 5 comments
+                        comment_text = comment.get('text') or comment.get('content') or comment.get('comment_text', '')
+                        if comment_text:
+                            comments.append(comment_text)
+                elif isinstance(co, dict):
+                    # Single comment
+                    comment_text = co.get('text') or co.get('content') or co.get('comment_text', '')
+                    if comment_text:
+                        comments.append(comment_text)
+                elif isinstance(co, str):
+                    # Direct comment string
+                    comments.append(co)
+            
             # Build location entry
             location_info = {
                 'name': location_name,
                 'category': category_name,
                 'grade': grade,
-                'coordinates': f"({lat}, {lon})" if lat and lon else None
+                'coordinates': f"({lat}, {lon})" if lat and lon else None,
+                'comments': comments if comments else None
             }
             locations.append(location_info)
         
@@ -788,6 +1200,12 @@ AND p.longitude >= {west} AND p.longitude <= {east}
                 loc_str = f"{i}. {loc['name']} - Category: {loc['category']}"
                 if loc['grade']:
                     loc_str += f", Grade: {loc['grade']}"
+                if loc.get('comments'):
+                    loc_str += f"\n   💬 Top Comments:"
+                    for j, comment in enumerate(loc['comments'], 1):
+                        # Truncate long comments
+                        comment_preview = comment[:150] + '...' if len(comment) > 150 else comment
+                        loc_str += f"\n      {j}. \"{comment_preview}\""
                 summary_parts.append(loc_str)
         
         return "\n".join(summary_parts)

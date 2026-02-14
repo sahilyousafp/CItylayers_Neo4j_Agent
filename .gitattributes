@@ -1,0 +1,13 @@
+# Security: Prevent accidental commits of sensitive files
+.env filter=secret
+.env.local filter=secret
+*.key filter=secret
+*_secret* filter=secret
+
+# Force LF line endings for consistency
+*.py text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.md text eol=lf

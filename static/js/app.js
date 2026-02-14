@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * A web application for visualizing location data with multiple visualization
- * modes including heatmaps, scatter plots, arc connections, and choropleth maps.
+ * modes including heatmaps, scatter plots, and hexagon maps.
  * 
  * Key Features:
  * - Interactive map with Mapbox GL JS
@@ -51,6 +51,9 @@
     const temperaturePanel = dataPanel?.querySelector("#weatherTab");
     const temperatureValue = dataPanel?.querySelector(".temperature-value");
     const temperatureHoverInfo = dataPanel?.querySelector(".temperature-hover-info");
+    const popupModeBtn = document.getElementById("popupModeBtn");
+    const windSpeedEl = document.getElementById("windSpeed");
+    const windDirectionEl = document.getElementById("windDirection");
 
     // ========================================================================
     // STATE VARIABLES
@@ -70,6 +73,15 @@
     let weatherHeatmapData = []; // Weather data points
     let transportStations = []; // Transport station data
     let vegetationData = []; // Vegetation/tree data
+    let popupModeActive = false; // Popup mode state
+    let weatherPopups = []; // Array to store created popups
+    let lastContextRecords = []; // Store context records from last query for PDF export
+    
+    // NEW: Track original full dataset and filtered state
+    let originalFullDataset = []; // All points from last database query
+    let activeFilters = []; // Stack of active client-side filters
+    let lastZoomLevel = null; // Track zoom for reset detection
+    let zoomResetThreshold = 0.25; // 25% zoom change triggers reset
 
     // ========================================================================
     // CATEGORY CONFIGURATION
@@ -96,6 +108,19 @@
     // ========================================================================
     // HELPER FUNCTIONS
     // ========================================================================
+    
+    /**
+     * Convert wind direction in degrees to cardinal direction
+     * @param {number} degrees - Wind direction in degrees (0-360)
+     * @returns {string} Cardinal direction (N, NE, E, SE, S, SW, W, NW)
+     */
+    function degreesToCardinal(degrees) {
+        if (degrees === null || degrees === undefined) return 'N/A';
+        
+        const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        const index = Math.round(((degrees % 360) / 45)) % 8;
+        return directions[index];
+    }
     
     /**
      * Get the current active bounds (drawn region or viewport)
@@ -181,7 +206,7 @@
         pitch: 0,
         bearing: 0,
         features: [],
-        boundaries: [], // For chloropleth
+        boundaries: [], // For hexagon
         shouldUpdateData: false,
         isDrawingMode: false
     };
@@ -201,7 +226,8 @@
         pitch: mapState.pitch,
         bearing: mapState.bearing,
         projection: 'mercator', // Force 2D plan view
-        antialias: true
+        antialias: true,
+        preserveDrawingBuffer: true // Required for canvas screenshot capture
     });
     
     // Apply customization on initial load
@@ -246,6 +272,9 @@
                 pitch: pitch,
                 bearing: bearing
             });
+            
+            // Update compass after restoring bearing
+            updateCompassRotation();
             
             // Reapply custom layers (3D buildings, etc.)
             customizeMapLayers();
@@ -423,7 +452,12 @@
     // Initialize deck.gl
     const deckOverlay = new deck.MapboxOverlay({
         interleaved: false,
-        layers: []
+        layers: [],
+        getTooltip: null,
+        // Enable drawing buffer preservation for screenshot capture
+        glOptions: {
+            preserveDrawingBuffer: true
+        }
     });
     map.addControl(deckOverlay);
 
@@ -449,6 +483,16 @@
             
             if (nearestPoint) {
                 temperatureHoverInfo.textContent = `${nearestPoint.temperature.toFixed(1)}°C`;
+                
+                // Update wind speed and direction
+                if (windSpeedEl && windDirectionEl) {
+                    windSpeedEl.textContent = nearestPoint.windSpeed !== undefined && nearestPoint.windSpeed !== null 
+                        ? nearestPoint.windSpeed.toFixed(1) + ' m/s' 
+                        : 'N/A';
+                    windDirectionEl.textContent = nearestPoint.windDirection !== undefined && nearestPoint.windDirection !== null 
+                        ? degreesToCardinal(nearestPoint.windDirection) + ' (' + nearestPoint.windDirection.toFixed(0) + '°)'
+                        : 'N/A';
+                }
             }
         }
     });
@@ -458,6 +502,17 @@
         if (temperatureHoverInfo && weatherEnabled && weatherHeatmapData.length > 0) {
             const avgTemp = (weatherHeatmapData.reduce((sum, p) => sum + p.temperature, 0) / weatherHeatmapData.length).toFixed(1);
             temperatureHoverInfo.textContent = `Avg: ${avgTemp}°C`;
+            
+            // Reset wind data to average
+            if (windSpeedEl && windDirectionEl && weatherHeatmapData.length > 0) {
+                const avgWindSpeed = weatherHeatmapData.reduce((sum, p) => sum + (p.windSpeed || 0), 0) / weatherHeatmapData.length;
+                const avgWindDirection = weatherHeatmapData.reduce((sum, p) => sum + (p.windDirection || 0), 0) / weatherHeatmapData.length;
+                
+                const hasWindData = weatherHeatmapData.some(p => p.windSpeed !== undefined && p.windSpeed !== null);
+                
+                windSpeedEl.textContent = hasWindData ? avgWindSpeed.toFixed(1) + ' m/s' : 'N/A';
+                windDirectionEl.textContent = hasWindData ? degreesToCardinal(avgWindDirection) + ' (' + avgWindDirection.toFixed(0) + '°)' : 'N/A';
+            }
         }
     });
 
@@ -465,12 +520,118 @@
     // WEATHER DETAILS PANEL
     // ========================================================================
     
-    let selectedLocation = null;
+    // Popup mode button event handler
+    if (popupModeBtn) {
+        popupModeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent triggering parent click
+            
+            // Check if weather tab is active
+            const weatherTab = document.getElementById('weatherTab');
+            const isWeatherTabActive = weatherTab && weatherTab.classList.contains('active');
+            
+            if (!isWeatherTabActive) {
+                // Don't allow popup mode if not on weather tab
+                return;
+            }
+            
+            popupModeActive = !popupModeActive;
+            popupModeBtn.classList.toggle('active', popupModeActive);
+            
+            if (popupModeActive) {
+                map.getCanvas().style.cursor = 'crosshair';
+            } else {
+                map.getCanvas().style.cursor = '';
+                // Clear all weather popups when toggled off
+                // Use a copy of the array to avoid issues during iteration
+                const popupsToRemove = [...weatherPopups];
+                popupsToRemove.forEach(popup => {
+                    try {
+                        if (popup && popup.isOpen()) {
+                            popup.remove();
+                        }
+                    } catch (e) {
+                        // Silently ignore errors from already-removed popups
+                    }
+                });
+                weatherPopups = [];
+            }
+        });
+    }
+    
+    // Map click handler for popup mode
+    map.on('click', (e) => {
+        // Check if weather tab is active
+        const weatherTab = document.getElementById('weatherTab');
+        const isWeatherTabActive = weatherTab && weatherTab.classList.contains('active');
+        
+        if (popupModeActive && weatherEnabled && weatherHeatmapData.length > 0 && isWeatherTabActive) {
+            const { lng, lat } = e.lngLat;
+            
+            // Find nearest weather point to get data
+            let nearestPoint = null;
+            let minDistance = Infinity;
+            
+            weatherHeatmapData.forEach(point => {
+                const dx = point.lon - lng;
+                const dy = point.lat - lat;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestPoint = point;
+                }
+            });
+            
+            if (nearestPoint) {
+                // Create compact popup with weather information at click location
+                const popup = new mapboxgl.Popup({
+                    closeButton: true,
+                    closeOnClick: false,
+                    className: 'weather-popup',
+                    offset: 10
+                })
+                    .setLngLat([lng, lat])  // Use click location, not nearest point
+                    .setHTML(`
+                        <div style="font-family: 'Space Grotesk', sans-serif; padding: 6px; font-size: 11px;">
+                            <div style="display: flex; flex-direction: column; gap: 3px;">
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Temp:</span>
+                                    <strong>${nearestPoint.temperature.toFixed(1)}°C</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Wind:</span>
+                                    <strong>${nearestPoint.windSpeed !== undefined && nearestPoint.windSpeed !== null ? nearestPoint.windSpeed.toFixed(1) + ' m/s' : 'N/A'}</strong>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                                    <span style="opacity: 0.7;">Dir:</span>
+                                    <strong>${nearestPoint.windDirection !== undefined && nearestPoint.windDirection !== null ? degreesToCardinal(nearestPoint.windDirection) : 'N/A'}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    `)
+                    .addTo(map);
+                
+                // Store popup reference
+                weatherPopups.push(popup);
+                
+                // Remove popup from array when closed manually
+                popup.on('close', () => {
+                    const index = weatherPopups.indexOf(popup);
+                    if (index > -1) {
+                        weatherPopups.splice(index, 1);
+                    }
+                });
+            }
+        }
+    });
     
     // Open weather details panel
-    // Temperature panel click handler
-    if (temperaturePanel) {
-        temperaturePanel.addEventListener('click', () => {
+    // AccuWeather link click handler - only on info button
+    const accuweatherLink = document.getElementById('accuweatherLink');
+    if (accuweatherLink) {
+        accuweatherLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            
             if (weatherEnabled && weatherHeatmapData.length > 0) {
                 // Get map center coordinates
                 const center = map.getCenter();
@@ -479,59 +640,6 @@
                 window.open(url, '_blank');
             }
         });
-    }
-
-    // Helper to add 3D buildings
-    function add3DBuildingsLayer() {
-        if (map.getLayer('add-3d-buildings')) return;
-
-        const layers = map.getStyle().layers;
-        const labelLayerId = layers.find(
-            (layer) => layer.type === 'symbol' && layer.layout['text-field']
-        )?.id;
-
-        map.addLayer(
-            {
-                'id': 'add-3d-buildings',
-                'source': 'composite',
-                'source-layer': 'building',
-                'filter': ['==', 'extrude', 'true'],
-                'type': 'fill-extrusion',
-                'minzoom': 12,
-                'paint': {
-                    'fill-extrusion-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['get', 'height'],
-                        0, '#d4d4d8',
-                        20, '#a1a1aa',
-                        40, '#71717a',
-                        60, '#52525b'
-                    ],
-                    'fill-extrusion-height': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        12,
-                        0,
-                        12.5,
-                        ['get', 'height']
-                    ],
-                    'fill-extrusion-base': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        12,
-                        0,
-                        12.5,
-                        ['get', 'min_height']
-                    ],
-                    'fill-extrusion-opacity': 0.8,
-                    'fill-extrusion-vertical-gradient': true
-                }
-            },
-            labelLayerId
-        );
     }
 
     // ========================================================================
@@ -552,11 +660,27 @@
      */
     map.on('load', () => {
         initDrawControl();
+        updateCompassRotation();
     });
 
     /**
+     * Update compass rotation based on map bearing
+     */
+    function updateCompassRotation() {
+        const compassOverlay = document.getElementById('compassOverlay');
+        if (compassOverlay) {
+            const bearing = map.getBearing();
+            const svg = compassOverlay.querySelector('svg');
+            if (svg) {
+                svg.style.transform = `rotate(${-bearing}deg)`;
+            }
+        }
+    }
+
+    /**
      * Update visualizations on map movement/zoom
-     * Heatmap and choropleth update dynamically with zoom level
+     * Heatmap and hexagon update dynamically with zoom level
+     * Also check for significant zoom changes to reset filters
      */
     map.on('moveend', function () {
         const center = map.getCenter();
@@ -565,8 +689,27 @@
         mapState.pitch = map.getPitch();
         mapState.bearing = map.getBearing();
 
-        // Update heatmap and choropleth visualizations on zoom change to update labels
-        if ((currentVizMode === 'heatmap' || currentVizMode === 'chloropleth') && mapState.features.length > 0) {
+        // Update compass rotation to show true north
+        updateCompassRotation();
+        
+        // Check if zoom changed significantly - reset filters if so
+        if (hasZoomChangedSignificantly() && activeFilters.length > 0) {
+            console.log('Significant zoom change detected - resetting filters');
+            resetFilteringState();
+            
+            // Update visualization
+            if (currentVizMode === 'mapbox') {
+                renderMapboxMarkers();
+            }
+            updateDeckLayers();
+            updateLocationCountDisplay();
+            
+            // Show notification
+            appendMessageHTML("assistant", "<p><em>🔄 Filters reset due to zoom change. Showing all original locations.</em></p>");
+        }
+
+        // Update heatmap and hexagon visualizations on zoom change to update labels
+        if ((currentVizMode === 'heatmap' || currentVizMode === 'hexagon') && mapState.features.length > 0) {
             updateDeckLayers();
         }
         
@@ -582,7 +725,7 @@
     
     /**
      * Update deck.gl visualization layers based on current mode
-     * Handles all visualization types: scatter, heatmap, arc, choropleth
+     * Handles all visualization types: scatter, heatmap, arc, hexagon
      */
     function updateDeckLayers() {
         const layers = [];
@@ -648,20 +791,8 @@
                 updateOverlay(heatmapResult.legend.title, heatmapResult.legend.items);
             }
         }
-        else if (currentVizMode === 'arc') {
-            layers.push(...createArcLayers(data, isDrawing));
-            updateOverlay("High-Grade Network (≥7)", [
-                { color: "rgb(255, 105, 180)", label: "Beauty" },
-                { color: "rgb(255, 165, 0)", label: "Activities" },
-                { color: "rgb(138, 43, 226)", label: "Sound" },
-                { color: "rgb(220, 20, 60)", label: "Protection" },
-                { color: "rgb(30, 144, 255)", label: "Movement" },
-                { color: "rgb(50, 205, 50)", label: "Views" },
-                { color: "rgb(64, 224, 208)", label: "Climate Comfort" }
-            ]);
-        }
-        else if (currentVizMode === 'chloropleth') {
-            layers.push(...createChoroplethLayers(data, isDrawing));
+        else if (currentVizMode === 'hexagon') {
+            layers.push(...createHexagonLayers(data, isDrawing));
             const zoom = map.getZoom();
             const zoomDesc = zoom < 9 ? 'Region' : zoom < 12 ? 'City' : zoom < 15 ? 'Neighborhood' : 'Street';
             updateOverlay(`${zoomDesc} Analysis (Zoom ${Math.round(zoom)})`, [
@@ -741,6 +872,52 @@
             overlayPanel.classList.add('hidden');
         } else {
             overlayPanel.classList.remove('hidden');
+        }
+    }
+
+    // ========================================================================
+    // TAB VISIBILITY MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Update tab visibility based on enabled data sources
+     */
+    function updateTabVisibility() {
+        const transportTab = document.querySelector('.data-tab[data-tab="transport"]');
+        const weatherTab = document.querySelector('.data-tab[data-tab="weather"]');
+        const treesTab = document.querySelector('.data-tab[data-tab="trees"]');
+        
+        // Show/hide tabs based on data source state
+        if (transportTab) {
+            transportTab.style.display = transportEnabled ? 'flex' : 'none';
+        }
+        if (weatherTab) {
+            weatherTab.style.display = weatherEnabled ? 'flex' : 'none';
+        }
+        if (treesTab) {
+            treesTab.style.display = vegetationEnabled ? 'flex' : 'none';
+        }
+        
+        // If current active tab becomes hidden, switch to first visible tab
+        const activeTab = document.querySelector('.data-tab.active');
+        if (activeTab && activeTab.style.display === 'none') {
+            const firstVisibleTab = document.querySelector('.data-tab[style*="flex"]');
+            if (firstVisibleTab) {
+                const tabName = firstVisibleTab.dataset.tab;
+                document.querySelectorAll('.data-tab').forEach(t => t.classList.remove('active'));
+                firstVisibleTab.classList.add('active');
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(tabName + 'Tab').classList.add('active');
+                
+                // Update popup button state
+                if (popupModeBtn) {
+                    if (tabName === 'weather') {
+                        popupModeBtn.classList.remove('disabled');
+                    } else {
+                        popupModeBtn.classList.add('disabled');
+                    }
+                }
+            }
         }
     }
 
@@ -846,15 +1023,14 @@
         const zoom = map.getZoom();
         
         // Define color scale based on actual rendered heatmap colors (using 100 scale for legend)
-        // These match the colorRange used in the HeatmapLayer below
-        // Deep Blue = Excellent (high grade), Light Blue = Very Low (low grade)
+        // RED = Low grades (poor), BLUE = High grades (excellent)
         const colorStops = [
-            { grade: 10, color: [180, 230, 250, 217], label: "Very Low" },      // Very Pale Blue
-            { grade: 30, color: [150, 220, 245, 217], label: "Low" },           // Pale Blue
-            { grade: 50, color: [120, 200, 240, 217], label: "Medium" },        // Sky Blue
-            { grade: 70, color: [90, 170, 230, 217], label: "Good" },           // Light Blue
-            { grade: 85, color: [30, 110, 200, 217], label: "Very Good" },      // Deep Blue
-            { grade: 100, color: [0, 50, 150, 217], label: "Excellent" }        // Deep Navy Blue
+            { grade: 10, color: [220, 50, 50, 217], label: "Very Low" },         // Red
+            { grade: 30, color: [255, 120, 50, 217], label: "Low" },             // Orange
+            { grade: 50, color: [255, 200, 50, 217], label: "Medium" },          // Yellow
+            { grade: 70, color: [100, 220, 200, 217], label: "Good" },           // Cyan
+            { grade: 85, color: [50, 150, 255, 217], label: "Very Good" },       // Light Blue
+            { grade: 100, color: [0, 50, 150, 217], label: "Excellent" }         // Deep Navy Blue
         ];
         
         // Build dynamic legend based on actual grade range
@@ -904,16 +1080,16 @@
             intensity: 1.2,
             threshold: 0.03,
             colorRange: [
-                [180, 230, 250],       // Very Pale Blue (low grade)
-                [150, 220, 245],       // Pale Blue
-                [120, 200, 240],       // Sky Blue
-                [90, 170, 230],        // Light Blue
-                [60, 140, 220],        // Blue
-                [30, 110, 200],        // Deep Blue
-                [0, 80, 180],          // Navy Blue
-                [0, 50, 150]           // Deep Navy Blue (high grade)
+                [220, 50, 50],         // Red (low grade ~1-2)
+                [255, 120, 50],        // Orange (low-mid ~2-3)
+                [255, 200, 50],        // Yellow (mid ~4-5)
+                [150, 230, 100],       // Yellow-Green (mid-high ~5-6)
+                [100, 220, 200],       // Cyan (high ~7-8)
+                [50, 150, 255],        // Light Blue (very high ~8-9)
+                [0, 80, 200],          // Deep Blue (excellent ~9-10)
+                [0, 50, 150]           // Navy Blue (perfect ~10)
             ],
-            opacity: 0.85,
+            opacity: 0.5,
             aggregation: 'MEAN'
         }));
 
@@ -929,262 +1105,7 @@
         };
     }
 
-    /**
-     * Create weather heatmap layer showing temperature data as raster
-     * @returns {deck.HeatmapLayer} Weather raster visualization layer
-     */
-    function createWeatherHeatmapLayer() {
-
-        
-        return new deck.HeatmapLayer({
-            id: 'weather-heatmap',
-            data: weatherHeatmapData,
-            getPosition: d => [d.lon, d.lat],
-            getWeight: d => d.value || d.temperature,
-            radiusPixels: 80,      // Smaller radius for finer raster cells
-            intensity: 4.0,        // High intensity for solid colors
-            threshold: 0.005,      // Very low threshold for complete coverage
-            colorRange: [
-                [0, 0, 255],           // Pure Blue (freezing)
-                [0, 128, 255],         // Light Blue (cold)
-                [0, 255, 255],         // Cyan (cool)
-                [0, 255, 0],           // Green (mild)
-                [255, 255, 0],         // Yellow (warm)
-                [255, 128, 0],         // Orange (hot)
-                [255, 0, 0]            // Red (very hot)
-            ],
-            opacity: 0.6,
-            pickable: true,
-            onHover: info => handleWeatherHover(info)
-        });
-    }
-
-    /**
-     * Handle hover over weather heatmap to show local temperature
-     */
-    function handleWeatherHover(info) {
-        if (!temperatureHoverInfo) return;
-        
-        // HeatmapLayer doesn't provide object data, so find nearest point
-        if (info && info.coordinate && weatherHeatmapData.length > 0) {
-            const [lon, lat] = info.coordinate;
-            let nearestPoint = null;
-            let minDistance = Infinity;
-            
-            weatherHeatmapData.forEach(point => {
-                const dx = point.lon - lon;
-                const dy = point.lat - lat;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestPoint = point;
-                }
-            });
-            
-            if (nearestPoint) {
-                temperatureHoverInfo.textContent = `Local: ${nearestPoint.temperature.toFixed(1)}°C`;
-            }
-        } else {
-            // Reset to default text
-            if (weatherEnabled && weatherHeatmapData.length > 0) {
-                temperatureHoverInfo.textContent = 'Hover over map for local temp';
-            }
-        }
-    }
-
-    function createArcLayers(data, isDrawing) {
-        const layers = [];
-        
-        // Filter only high-grade locations (grade >= 7)
-        const highGradeData = data.filter(d => {
-            const grade = d.grade ? parseFloat(d.grade) : 0;
-            return grade >= 7;
-        });
-
-        if (highGradeData.length < 2) {
-            console.warn('Not enough high-grade locations for graph visualization');
-            return [new deck.ScatterplotLayer({ id: 'empty-graph', data: [] })];
-        }
-
-        // Check if current category is Movement
-        const isMovementCategory = currentCategory === 'Movement' || currentCategory === 3;
-
-        
-        // Build graph connections
-        const connections = [];
-        
-        if (isMovementCategory && transportEnabled && transportStations.length > 0) {
-            // Movement mode: connect locations to nearest transport stations of each type
-            const filteredStations = transportStations.filter(s => transportFilters[s.type]);
-
-            
-            if (filteredStations.length > 0) {
-                highGradeData.forEach(location => {
-                    // Find absolute nearest transport station across all filtered types
-                    let nearest = null;
-                    let minDistance = Infinity;
-                    
-                    filteredStations.forEach(station => {
-                        const dx = station.lon - location.lon;
-                        const dy = station.lat - location.lat;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        
-                        if (distance < minDistance && distance < 0.05) { // Only within ~5km
-                            minDistance = distance;
-                            nearest = { station, distance };
-                        }
-                    });
-                    
-                    if (nearest) {
-                        connections.push({
-                            source: [location.lon, location.lat],
-                            target: [nearest.station.lon, nearest.station.lat],
-                            category: 'Movement',
-                            transportType: nearest.station.type,
-                            distance: nearest.distance,
-                            sourceData: location,
-                            targetData: nearest.station
-                        });
-
-                    }
-                });
-            }
-        } else {
-            // Default mode: connect locations to each other
-            highGradeData.forEach((source, idx) => {
-                // Calculate distances to all other points
-                const distances = highGradeData
-                    .map((target, targetIdx) => {
-                        if (idx === targetIdx) return null;
-                        
-                        const dx = target.lon - source.lon;
-                        const dy = target.lat - source.lat;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        
-                        return { target, targetIdx, distance };
-                    })
-                    .filter(d => d !== null)
-                    .sort((a, b) => a.distance - b.distance)
-                    .slice(0, 3); // Connect to 3 nearest neighbors
-                
-                // Create connections
-                distances.forEach(({ target }) => {
-                    // Get primary category for color
-                    const sourceCat = getCategoryName(source);
-                    const targetCat = getCategoryName(target);
-                    const category = sourceCat; // Use source category for color
-                    
-                    const avgGrade = ((parseFloat(source.grade) || 7) + (parseFloat(target.grade) || 7)) / 2;
-                    
-                    connections.push({
-                        source: [source.lon, source.lat],
-                        target: [target.lon, target.lat],
-                        category: category,
-                        avgGrade: avgGrade,
-                        sourceData: source,
-                        targetData: target
-                    });
-                });
-            });
-        }
-
-        // Helper function to get category name
-        function getCategoryName(point) {
-            if (point.category_ids && point.category_ids.length > 0) {
-                return CATEGORY_ID_MAPPING[point.category_ids[0]] || 'Uncategorized';
-            }
-            const categories = point.categories || (point.category ? [point.category] : ['Uncategorized']);
-            return categories[0] || 'Uncategorized';
-        }
-
-        // Define transport type colors
-        const TRANSPORT_COLORS = {
-            train: [255, 59, 48],    // Red
-            tram: [52, 199, 89],     // Green
-            bus: [0, 122, 255]       // Blue
-        };
-
-        // Create nodes layer first (rendered on bottom, but clickable on top)
-        layers.push(
-            new deck.ScatterplotLayer({
-                id: 'graph-nodes',
-                data: highGradeData,
-                getPosition: d => [d.lon, d.lat],
-                getFillColor: d => {
-                    const category = getCategoryName(d);
-                    return CATEGORY_COLORS[category] || CATEGORY_COLORS['Uncategorized'];
-                },
-                getRadius: d => {
-                    const grade = parseFloat(d.grade) || 7;
-                    return grade * 10; // Size based on grade
-                },
-                radiusMinPixels: 5,
-                radiusMaxPixels: 15,
-                lineWidthMinPixels: 2,
-                stroked: true,
-                getLineColor: [255, 255, 255],
-                pickable: !isDrawing,
-                onClick: info => showPopup(info)
-            })
-        );
-
-        // Create line layer for connections (rendered on top)
-        layers.push(
-            new deck.LineLayer({
-                id: 'graph-connections',
-                data: connections,
-                getSourcePosition: d => d.source,
-                getTargetPosition: d => d.target,
-                getColor: d => {
-                    if (isMovementCategory && d.transportType) {
-                        // Color by transport type in Movement mode
-                        const color = TRANSPORT_COLORS[d.transportType] || [100, 100, 100];
-                        return [...color, 200];
-                    } else {
-                        // Color by category in normal mode
-                        const color = CATEGORY_COLORS[d.category] || CATEGORY_COLORS['Uncategorized'];
-                        return [...color, 180];
-                    }
-                },
-                getWidth: d => {
-                    if (isMovementCategory) {
-                        return 3; // Fixed width for transport connections
-                    } else {
-                        return d.avgGrade / 2; // Width based on average grade
-                    }
-                },
-                widthMinPixels: 2,
-                widthMaxPixels: 8,
-                pickable: !isDrawing,
-                onClick: info => {
-                    if (info.object) {
-                        const d = info.object;
-                        let html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
-                            <strong>Connection</strong><br>`;
-                        
-                        if (d.transportType) {
-                            html += `<b>Transport:</b> ${d.transportType}<br>
-                                     <b>Distance:</b> ${(d.distance * 111).toFixed(2)} km`;
-                        } else {
-                            html += `<b>Category:</b> ${d.category}<br>
-                                     <b>Avg Grade:</b> ${d.avgGrade.toFixed(1)}`;
-                        }
-                        html += `</div>`;
-                        
-                        new mapboxgl.Popup()
-                            .setLngLat(info.coordinate)
-                            .setHTML(html)
-                            .addTo(map);
-                    }
-                }
-            })
-        );
-
-        return layers;
-    }
-
-    function createChoroplethLayers(data, isDrawing) {
+    function createHexagonLayers(data, isDrawing) {
         const layers = [];
         const zoom = map.getZoom();
 
@@ -1315,7 +1236,7 @@
         if (hexFeatures.length === 0 && data.length > 0) {
             layers.push(
                 new deck.ScatterplotLayer({
-                    id: 'chloropleth-fallback',
+                    id: 'hexagon-fallback',
                     data: data,
                     getPosition: d => [d.lon, d.lat],
                     getFillColor: [200, 200, 200],
@@ -1505,8 +1426,8 @@
             updateDeckLayers();
         }
         
-        // Update location info header
-        updateLocationInfoForVisualization();
+        // Update location count display
+        updateLocationCountDisplay();
     }
 
     // ==============================
@@ -1585,6 +1506,10 @@
                 appendMessage("user", displayMessage);
                 appendMessage("assistant pending", "...");
                 
+                // Reset filter state before new query
+                console.log('Category filter button clicked - resetting filters');
+                resetFilteringState();
+                
                 // Show loading state
                 applyFilterBtn.disabled = true;
                 applyFilterBtn.textContent = 'Loading...';
@@ -1597,12 +1522,32 @@
                         bounds: activeBounds
                     };
                     
+                    // Build array of enabled data sources
+                    const enabledSources = [];
+                    if (cityLayersEnabled) enabledSources.push("citylayers");
+                    if (weatherEnabled) enabledSources.push("weather");
+                    if (transportEnabled) enabledSources.push("transport");
+                    if (vegetationEnabled) enabledSources.push("vegetation");
+
+                    // Collect external dataset data to send to LLM
+                    const externalDatasets = {};
+                    if (weatherEnabled && weatherHeatmapData.length > 0) {
+                        externalDatasets.weather = weatherHeatmapData;
+                    }
+                    if (transportEnabled && transportStations.length > 0) {
+                        externalDatasets.transport = transportStations;
+                    }
+                    if (vegetationEnabled && vegetationData.length > 0) {
+                        externalDatasets.vegetation = vegetationData;
+                    }
+
                     const res = await fetch("/chat", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             message: queryMessage,
-                            data_sources: cityLayersEnabled ? ["citylayers"] : [],
+                            data_sources: enabledSources,
+                            external_datasets: externalDatasets,
                             map_context: mapContext,
                             category_filter: selectedCategory !== 'all' ? selectedCategory : null
                         }),
@@ -1616,6 +1561,17 @@
                     if (pending) pending.remove();
                     
                     if (data.ok) {
+                        // Store context records for PDF export
+                        console.log(`DEBUG: Filter response data.context exists: ${!!data.context}`);
+                        if (data.context) {
+                            console.log(`DEBUG: Filter response data.context length: ${data.context.length}`);
+                            console.log(`DEBUG: Filter response data.context sample:`, data.context.slice(0, 2));
+                            lastContextRecords = data.context;
+                            console.log(`DEBUG: Stored ${lastContextRecords.length} context records for PDF export from filter`);
+                        } else {
+                            console.log(`DEBUG: No context in filter response, lastContextRecords will remain empty`);
+                        }
+                        
                         // Display the answer in chat
                         if (data.answer_html) {
                             appendMessageHTML("assistant", data.answer_html);
@@ -1754,10 +1710,26 @@
             
             // temperatureValue = small average label
             temperatureValue.textContent = `Avg: ${avgTemp}°C`;
+            
+            // Calculate and display average wind data
+            if (windSpeedEl && windDirectionEl) {
+                const avgWindSpeed = weatherHeatmapData.reduce((sum, p) => sum + (p.windSpeed || 0), 0) / weatherHeatmapData.length;
+                const avgWindDirection = weatherHeatmapData.reduce((sum, p) => sum + (p.windDirection || 0), 0) / weatherHeatmapData.length;
+                
+                // Check if we have valid wind data (not just zeros from defaults)
+                const hasWindData = weatherHeatmapData.some(p => p.windSpeed !== undefined && p.windSpeed !== null);
+                
+                windSpeedEl.textContent = hasWindData ? avgWindSpeed.toFixed(1) + ' m/s' : 'N/A';
+                windDirectionEl.textContent = hasWindData ? degreesToCardinal(avgWindDirection) + ' (' + avgWindDirection.toFixed(0) + '°)' : 'N/A';
+            }
         } else {
             // Reset when weather is disabled
             temperatureHoverInfo.textContent = '--°C';
             temperatureValue.textContent = 'Avg: --°C';
+            if (windSpeedEl && windDirectionEl) {
+                windSpeedEl.textContent = '-- m/s';
+                windDirectionEl.textContent = '--°';
+            }
         }
     }
 
@@ -1782,8 +1754,14 @@
             const res = await fetch("/map-data");
             const data = await res.json();
             if (data.ok) {
-                mapState.features = data.features || [];
+                // Store original full dataset for client-side filtering
+                originalFullDataset = data.features || [];
+                mapState.features = [...originalFullDataset];
                 mapState.boundaries = data.boundaries || [];
+                
+                // Reset filtering state when new data is loaded
+                activeFilters = [];
+                lastZoomLevel = map.getZoom();
 
                 console.log('Map data refreshed:', {
                     featureCount: mapState.features.length,
@@ -1798,16 +1776,8 @@
                 // Update category filter
                 updateCategoryFilter();
 
-                // Fit bounds if we have data
-                if (mapState.features.length > 0) {
-                    const bounds = new mapboxgl.LngLatBounds();
-                    mapState.features.forEach(f => {
-                        if (f.lat && f.lon) {
-                            bounds.extend([f.lon, f.lat]);
-                        }
-                    });
-                    map.fitBounds(bounds, { padding: 50, maxZoom: 15 });
-                }
+                // Keep zoom fixed - removed auto-fitBounds to maintain current view
+                // Users can manually zoom/pan to see results within their current bounds
 
                 // Always update visualization layers
                 updateDeckLayers();
@@ -1862,6 +1832,41 @@
     // Chat Handling
     async function sendMessage(message) {
         appendMessage("user", message);
+        
+        // Check if this is a client-side filter query
+        if (isClientSideFilter(message) && originalFullDataset.length > 0 && mapState.features.length > 0) {
+            console.log('Detected client-side filter query:', message);
+            
+            // Parse filter criteria
+            const criteria = parseFilterCriteria(message);
+            console.log('Filter criteria:', criteria);
+            
+            if (Object.keys(criteria).length > 0) {
+                // Apply filter to current features (not original - allows stacking filters)
+                const beforeCount = mapState.features.length;
+                mapState.features = applyClientSideFilter(mapState.features, criteria);
+                const afterCount = mapState.features.length;
+                
+                // Track this filter
+                activeFilters.push({ query: message, criteria });
+                
+                // Generate detailed response message
+                let responseHtml = generateFilterResponseMessage(mapState.features, beforeCount, criteria);
+                
+                appendMessageHTML("assistant", responseHtml);
+                
+                // Update visualization
+                if (currentVizMode === 'mapbox') {
+                    renderMapboxMarkers();
+                }
+                updateDeckLayers();
+                updateLocationCountDisplay();
+                
+                return;
+            }
+        }
+        
+        // Normal query - send to backend
         appendMessage("assistant pending", "...");
         try {
             const activeBounds = getActiveBounds();
@@ -1871,12 +1876,32 @@
                 zoom: map.getZoom()
             };
 
+            // Build array of enabled data sources
+            const enabledSources = [];
+            if (cityLayersEnabled) enabledSources.push("citylayers");
+            if (weatherEnabled) enabledSources.push("weather");
+            if (transportEnabled) enabledSources.push("transport");
+            if (vegetationEnabled) enabledSources.push("vegetation");
+
+            // Collect external dataset data to send to LLM
+            const externalDatasets = {};
+            if (weatherEnabled && weatherHeatmapData.length > 0) {
+                externalDatasets.weather = weatherHeatmapData;
+            }
+            if (transportEnabled && transportStations.length > 0) {
+                externalDatasets.transport = transportStations;
+            }
+            if (vegetationEnabled && vegetationData.length > 0) {
+                externalDatasets.vegetation = vegetationData;
+            }
+
             const res = await fetch("/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message,
-                    data_sources: cityLayersEnabled ? ["citylayers"] : [],
+                    data_sources: enabledSources,
+                    external_datasets: externalDatasets,
                     map_context: mapContext,
                     category_filter: currentCategory !== 'all' ? currentCategory : null
                 }),
@@ -1889,6 +1914,17 @@
             if (pending) pending.remove();
 
             if (data.ok) {
+                // Store context records for PDF export
+                console.log(`DEBUG: Response data.context exists: ${!!data.context}`);
+                if (data.context) {
+                    console.log(`DEBUG: Response data.context length: ${data.context.length}`);
+                    console.log(`DEBUG: Response data.context sample:`, data.context.slice(0, 2));
+                    lastContextRecords = data.context;
+                    console.log(`DEBUG: Stored ${lastContextRecords.length} context records for PDF export`);
+                } else {
+                    console.log(`DEBUG: No context in response, lastContextRecords will remain empty`);
+                }
+                
                 if (data.answer_html) {
                     appendMessageHTML("assistant", data.answer_html);
                 } else if (data.answer) {
@@ -1919,38 +1955,13 @@
                         }
                     }
                 }
-                
-                // Auto-enable data sources based on backend detection
-                if (data.auto_enabled_sources && data.auto_enabled_sources.length > 0) {
-                    data.auto_enabled_sources.forEach(source => {
-                        if (source === 'weather' && !weatherEnabled) {
-                            weatherEnabled = true;
-                            if (sourceWeather) {
-                                sourceWeather.classList.add('active');
-                            }
-                            fetchWeatherData();
-                        } else if (source === 'transport' && !transportEnabled) {
-                            transportEnabled = true;
-                            if (sourceTransport) {
-                                sourceTransport.classList.add('active');
-                            }
-                            fetchTransportData();
-                        } else if (source === 'vegetation' && !vegetationEnabled) {
-                            vegetationEnabled = true;
-                            if (sourceVegetation) {
-                                sourceVegetation.classList.add('active');
-                            }
-                            fetchVegetationData();
-                        }
-                    });
-                }
 
                 await refreshMapData();
 
                 // Handle visualization recommendation
                 if (data.visualization_recommendation) {
                     const rec = data.visualization_recommendation.type;
-                    if (['scatter', 'heatmap', 'arc', 'chloropleth'].includes(rec)) {
+                    if (['scatter', 'heatmap', 'hexagon'].includes(rec)) {
                         setVizMode(rec);
                     }
                 } else if (drawnRegionBounds && mapState.features.length > 0) {
@@ -1972,6 +1983,348 @@
             if (pending) pending.remove();
             appendMessage("assistant error", String(e));
         }
+    }
+
+    // ========================================================================
+    // CLIENT-SIDE FILTERING FOR FOLLOW-UP QUERIES
+    // ========================================================================
+    
+    /**
+     * Generate detailed HTML response message after filtering
+     */
+    function generateFilterResponseMessage(features, beforeCount, criteria) {
+        if (features.length === 0) {
+            return `<p><strong>No locations match your filter criteria.</strong><br>
+                   Try adjusting your filter or <em>zoom out to reset</em>.</p>`;
+        }
+        
+        const afterCount = features.length;
+        
+        // Calculate statistics
+        const grades = features
+            .map(f => parseFloat(f.grade))
+            .filter(g => !isNaN(g));
+        
+        const avgGrade = grades.length > 0 
+            ? (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(1)
+            : 'N/A';
+        
+        const maxGrade = grades.length > 0 
+            ? Math.max(...grades).toFixed(1)
+            : 'N/A';
+        
+        const minGrade = grades.length > 0 
+            ? Math.min(...grades).toFixed(1)
+            : 'N/A';
+        
+        // Get unique categories
+        const categories = [...new Set(features.map(f => f.category).filter(c => c))];
+        const categoryText = categories.length > 0 
+            ? categories.join(', ')
+            : 'Various';
+        
+        // Build HTML response
+        let html = '<div style="margin-bottom: 12px;">';
+        html += `<h3 style="margin: 0 0 8px 0;">📍 Filtered Results</h3>`;
+        html += `<p style="margin: 4px 0;"><strong>${afterCount} locations</strong> (filtered from ${beforeCount})</p>`;
+        
+        // Filter criteria summary
+        if (criteria.gradeMin || criteria.gradeMax || criteria.topN || criteria.locationName) {
+            html += '<p style="margin: 4px 0; color: #666; font-size: 14px;">';
+            if (criteria.locationName) {
+                html += `Location: <em>${criteria.locationName}</em>`;
+                if (criteria.gradeMin || criteria.gradeMax || criteria.topN) html += ' • ';
+            }
+            if (criteria.gradeMin) {
+                html += `Grade ≥ ${criteria.gradeMin}`;
+                if (criteria.gradeMax || criteria.topN) html += ' • ';
+            }
+            if (criteria.gradeMax) {
+                html += `Grade ≤ ${criteria.gradeMax}`;
+                if (criteria.topN) html += ' • ';
+            }
+            if (criteria.topN) {
+                html += `Top ${criteria.topN} by grade`;
+            }
+            html += '</p>';
+        }
+        
+        html += '</div>';
+        
+        // Statistics table
+        html += '<table style="width: 100%; margin-bottom: 12px; border-collapse: collapse;">';
+        html += '<tbody>';
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Categories:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${categoryText}</td></tr>`;
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Average Grade:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${avgGrade}/100</td></tr>`;
+        html += `<tr><td style="padding: 4px; border-bottom: 1px solid #eee;"><strong>Grade Range:</strong></td><td style="padding: 4px; border-bottom: 1px solid #eee;">${minGrade} - ${maxGrade}</td></tr>`;
+        html += '</tbody>';
+        html += '</table>';
+        
+        // Show top locations (up to 10) with EXACT location names
+        const displayCount = Math.min(10, afterCount);
+        if (displayCount > 0) {
+            html += `<div style="margin-bottom: 12px;">`;
+            html += `<p style="margin: 8px 0 4px 0;"><strong>Top ${displayCount} Locations:</strong></p>`;
+            html += '<table class="hoverable-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+            html += '<thead><tr style="background: #f5f5f5;">';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">#</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Location</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Category</th>';
+            html += '<th style="padding: 6px; text-align: left; border-bottom: 2px solid #ddd;">Grade</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+            
+            // Sort by grade for display
+            const sortedFeatures = [...features]
+                .filter(f => f.grade !== undefined)
+                .sort((a, b) => parseFloat(b.grade) - parseFloat(a.grade))
+                .slice(0, displayCount);
+            
+            sortedFeatures.forEach((f, idx) => {
+                // Use exact location from data, not generic name
+                const locationName = f.location || f.name || 'Unknown Location';
+                const category = f.category || 'Uncategorized';
+                const grade = parseFloat(f.grade).toFixed(1);
+                const gradeColor = grade >= 80 ? '#2ecc71' : grade >= 70 ? '#3498db' : grade >= 50 ? '#f39c12' : '#e74c3c';
+                
+                // Add data attributes for hover functionality
+                const dataAttr = f.place_id ? `data-place-id="${f.place_id}"` : '';
+                const geoAttr = (f.lat && f.lon) ? `data-lat="${f.lat}" data-lon="${f.lon}"` : '';
+                
+                html += `<tr ${dataAttr} ${geoAttr} style="border-bottom: 1px solid #eee; cursor: pointer;">`;
+                html += `<td style="padding: 6px;">${idx + 1}</td>`;
+                html += `<td style="padding: 6px;">${locationName}</td>`;
+                html += `<td style="padding: 6px;">${category}</td>`;
+                html += `<td style="padding: 6px; font-weight: bold; color: ${gradeColor};">${grade}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody>';
+            html += '</table>';
+            
+            if (afterCount > displayCount) {
+                html += `<p style="margin: 4px 0; color: #666; font-size: 12px; font-style: italic;">...and ${afterCount - displayCount} more locations</p>`;
+            }
+            
+            html += '</div>';
+        }
+        
+        // Extract and display top 5 comments from filtered locations
+        const allComments = [];
+        features.forEach(f => {
+            if (f.comments) {
+                let comments = [];
+                
+                // Handle different comment structures
+                if (Array.isArray(f.comments)) {
+                    comments = f.comments;
+                } else if (typeof f.comments === 'string') {
+                    try {
+                        comments = JSON.parse(f.comments);
+                    } catch {
+                        comments = [{ text: f.comments }];
+                    }
+                } else if (typeof f.comments === 'object') {
+                    comments = [f.comments];
+                }
+                
+                // Extract comment text and associate with location
+                comments.forEach(comment => {
+                    const commentText = comment.text || comment.content || comment.comment_text || comment;
+                    if (commentText && typeof commentText === 'string') {
+                        allComments.push({
+                            text: commentText,
+                            location: f.location || f.name || 'Unknown',
+                            grade: parseFloat(f.grade) || 0,
+                            relevance: comment.relevance_score || 0
+                        });
+                    }
+                });
+            }
+        });
+        
+        // Show top 5 comments if available
+        if (allComments.length > 0) {
+            html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 2px solid #e0e0e0;">';
+            html += '<p style="margin: 8px 0 8px 0; font-weight: bold; font-size: 14px;">💬 Top 5 Comments from Selected Locations:</p>';
+            
+            // Sort by relevance score first, then by location grade
+            const topComments = allComments
+                .sort((a, b) => {
+                    // First by relevance if available
+                    if (b.relevance !== a.relevance) {
+                        return b.relevance - a.relevance;
+                    }
+                    // Then by grade
+                    return b.grade - a.grade;
+                })
+                .slice(0, 5);
+            
+            topComments.forEach((comment, idx) => {
+                html += '<div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-left: 3px solid #3498db; border-radius: 4px;">';
+                html += `<p style="margin: 0 0 4px 0; font-size: 12px; color: #666; font-weight: 600;">`;
+                html += `<span style="color: #3498db;">📍 ${comment.location}</span>`;
+                if (comment.grade > 0) {
+                    const gradeColor = comment.grade >= 80 ? '#2ecc71' : comment.grade >= 70 ? '#3498db' : '#f39c12';
+                    html += ` <span style="color: ${gradeColor}; font-weight: bold;">(${comment.grade.toFixed(1)})</span>`;
+                }
+                html += '</p>';
+                html += `<p style="margin: 4px 0 0 0; font-size: 13px; line-height: 1.5; color: #333;">"${comment.text}"</p>`;
+                html += '</div>';
+            });
+            
+            if (allComments.length > 5) {
+                html += `<p style="margin: 4px 0; color: #666; font-size: 12px; font-style: italic;">...and ${allComments.length - 5} more comments</p>`;
+            }
+            
+            html += '</div>';
+        }
+        
+        // Footer message
+        html += '<p style="margin-top: 12px; padding: 8px; background: #f0f8ff; border-left: 3px solid #3498db; font-size: 13px;">';
+        html += '<strong>💡 Tip:</strong> You can continue filtering these results, or <em>zoom out / change category to reset</em>.';
+        html += '</p>';
+        
+        return html;
+    }
+    
+    /**
+     * Detect if query is a follow-up filter that should work on existing points
+     */
+    function isClientSideFilter(query) {
+        const q = query.toLowerCase();
+        const filterKeywords = [
+            'rated', 'grade', 'above', 'below', 'over', 'under',
+            'top ', 'best', 'worst', 'highest', 'lowest',
+            'show me the', 'filter', 'only', 'just',
+            'which ones', 'which one', 'among', 'from these',
+            'this point', 'this location', 'this place',
+            'that point', 'that location', 'that place',
+            'tell me about', 'what about', 'show me just'
+        ];
+        return filterKeywords.some(keyword => q.includes(keyword));
+    }
+    
+    /**
+     * Parse filter criteria from query
+     */
+    function parseFilterCriteria(query) {
+        const q = query.toLowerCase();
+        const criteria = {};
+        
+        // Grade filters
+        const gradeAboveMatch = q.match(/(?:above|over|greater than)\s+(\d+)/);
+        const gradeBelowMatch = q.match(/(?:below|under|less than)\s+(\d+)/);
+        const gradeExactMatch = q.match(/(?:grade|rated)\s+(\d+)/);
+        
+        if (gradeAboveMatch) {
+            criteria.gradeMin = parseInt(gradeAboveMatch[1]);
+        } else if (gradeBelowMatch) {
+            criteria.gradeMax = parseInt(gradeBelowMatch[1]);
+        } else if (gradeExactMatch) {
+            criteria.gradeMin = parseInt(gradeExactMatch[1]);
+        } else if (q.includes('highly rated') || q.includes('high grade')) {
+            criteria.gradeMin = 70;
+        } else if (q.includes('best') || q.includes('top rated')) {
+            criteria.gradeMin = 80;
+        }
+        
+        // Top N filter
+        const topMatch = q.match(/top\s+(\d+)/);
+        if (topMatch) {
+            criteria.topN = parseInt(topMatch[1]);
+        } else if (q.includes('top ') && !topMatch) {
+            criteria.topN = 5; // Default to top 5
+        }
+        
+        // Location name filter - extract specific location mentioned in query
+        // Look for patterns like "show me [location]", "tell me about [location]", "what about [location]"
+        const locationPatterns = [
+            /(?:show me|tell me about|what about|show just|show only)\s+(.+?)(?:\s+point|\s+location|\s+place|$)/i,
+            /(?:this|that)\s+(?:point|location|place)\s+(?:called|named)?\s*(.+)/i
+        ];
+        
+        for (const pattern of locationPatterns) {
+            const match = query.match(pattern);
+            if (match && match[1]) {
+                const locationName = match[1].trim();
+                // Clean up common words
+                const cleanName = locationName
+                    .replace(/\b(?:the|a|an|at|in|on)\b/gi, '')
+                    .trim();
+                if (cleanName.length > 2) {
+                    criteria.locationName = cleanName;
+                    break;
+                }
+            }
+        }
+        
+        return criteria;
+    }
+    
+    /**
+     * Apply filter criteria to features
+     */
+    function applyClientSideFilter(features, criteria) {
+        let filtered = [...features];
+        
+        // Apply location name filter first (most specific)
+        if (criteria.locationName) {
+            const searchTerm = criteria.locationName.toLowerCase();
+            filtered = filtered.filter(f => {
+                const location = (f.location || f.name || '').toLowerCase();
+                // Check if location contains the search term
+                return location.includes(searchTerm);
+            });
+            console.log(`Location filter "${criteria.locationName}": ${filtered.length} matches`);
+        }
+        
+        // Apply grade filters
+        if (criteria.gradeMin !== undefined) {
+            filtered = filtered.filter(f => {
+                const grade = parseFloat(f.grade);
+                return !isNaN(grade) && grade >= criteria.gradeMin;
+            });
+        }
+        
+        if (criteria.gradeMax !== undefined) {
+            filtered = filtered.filter(f => {
+                const grade = parseFloat(f.grade);
+                return !isNaN(grade) && grade <= criteria.gradeMax;
+            });
+        }
+        
+        // Apply top N filter (sort by grade DESC and take top N)
+        if (criteria.topN !== undefined) {
+            filtered = filtered
+                .filter(f => f.grade !== undefined && !isNaN(parseFloat(f.grade)))
+                .sort((a, b) => parseFloat(b.grade) - parseFloat(a.grade))
+                .slice(0, criteria.topN);
+        }
+        
+        return filtered;
+    }
+    
+    /**
+     * Check if zoom has changed significantly (>25%)
+     */
+    function hasZoomChangedSignificantly() {
+        if (lastZoomLevel === null) {
+            return false;
+        }
+        const currentZoom = map.getZoom();
+        const zoomChange = Math.abs(currentZoom - lastZoomLevel) / lastZoomLevel;
+        return zoomChange > zoomResetThreshold;
+    }
+    
+    /**
+     * Reset filtering state
+     */
+    function resetFilteringState() {
+        activeFilters = [];
+        mapState.features = [...originalFullDataset];
+        lastZoomLevel = map.getZoom();
+        console.log('Filter state reset - showing all original points');
     }
 
     // Loading messages that rotate
@@ -2037,6 +2390,20 @@
         const div = document.createElement("div");
         div.className = role;
         div.innerHTML = html;
+        
+        // Add export button for assistant messages (not errors or pending)
+        if (role === "assistant") {
+            const exportBtn = document.createElement("button");
+            exportBtn.className = "message-export-btn";
+            exportBtn.innerHTML = '📄 Download Report'; // Text instead of just icon
+            exportBtn.title = "Export this conversation as PDF";
+            exportBtn.onclick = (e) => {
+                e.preventDefault();
+                exportPdfReport(exportBtn);
+            };
+            div.appendChild(exportBtn);
+        }
+        
         chatWindow.appendChild(div);
         
         // Add hover functionality to table rows
@@ -2098,19 +2465,44 @@
                     this.style.cursor = '';
                 });
                 
-                // Click to zoom to location
+                // Click to zoom to location AND highlight
                 row.addEventListener('click', function() {
                     // First try to get geolocation from data attributes
                     const lat = this.getAttribute('data-lat');
                     const lon = this.getAttribute('data-lon');
+                    const location = this.getAttribute('data-location');
+                    const placeId = this.getAttribute('data-place-id');
                     
                     if (lat && lon) {
                         // Use geolocation data directly from database
+                        const feature = {
+                            lat: parseFloat(lat),
+                            lon: parseFloat(lon),
+                            location: location || 'Location',
+                            place_id: placeId
+                        };
+                        
+                        // Highlight the location FIRST
+                        highlightLocationOnMap(feature);
+                        
+                        // Then fly to it
                         map.flyTo({
                             center: [parseFloat(lon), parseFloat(lat)],
                             zoom: 16,
                             duration: 1500
                         });
+                        
+                        // Add visual feedback to the clicked row
+                        // Remove previous selection
+                        document.querySelectorAll('.chat-window tbody tr').forEach(r => {
+                            r.style.backgroundColor = '';
+                            r.classList.remove('selected-location');
+                        });
+                        
+                        // Mark this row as selected
+                        this.style.backgroundColor = '#bbdefb';
+                        this.classList.add('selected-location');
+                        
                     } else {
                         // Fallback: try to match by location name
                         const cells = this.querySelectorAll('td');
@@ -2122,11 +2514,24 @@
                         );
                         
                         if (feature && feature.lat && feature.lon) {
+                            // Highlight the location FIRST
+                            highlightLocationOnMap(feature);
+                            
+                            // Then fly to it
                             map.flyTo({
                                 center: [feature.lon, feature.lat],
                                 zoom: 16,
                                 duration: 1500
                             });
+                            
+                            // Add visual feedback to the clicked row
+                            document.querySelectorAll('.chat-window tbody tr').forEach(r => {
+                                r.style.backgroundColor = '';
+                                r.classList.remove('selected-location');
+                            });
+                            
+                            this.style.backgroundColor = '#bbdefb';
+                            this.classList.add('selected-location');
                         }
                     }
                 });
@@ -2173,7 +2578,25 @@
             highlightMarker.remove();
             highlightMarker = null;
         }
+        
+        // Also clear selected row styling
+        document.querySelectorAll('.chat-window tbody tr.selected-location').forEach(r => {
+            r.style.backgroundColor = '';
+            r.classList.remove('selected-location');
+        });
     }
+    
+    // Clear highlight when clicking on map (not on markers)
+    map.on('click', function(e) {
+        // Check if click was on a marker
+        const features = map.queryRenderedFeatures(e.point);
+        const clickedOnMarker = features.some(f => f.layer && f.layer.id && f.layer.id.includes('marker'));
+        
+        // Only remove highlight if not clicking on a marker
+        if (!clickedOnMarker && highlightMarker) {
+            removeMapHighlight();
+        }
+    });
 
     function scrollToBottom() {
         chatWindow.scrollTo({ top: chatWindow.scrollHeight, behavior: "smooth" });
@@ -2503,9 +2926,12 @@
             weatherEnabled = !weatherEnabled;
             sourceWeather.classList.toggle('active', weatherEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
+            
             // Show/hide data panel and switch to weather tab
             if (dataPanel) {
-                if (weatherEnabled || transportEnabled) {
+                if (weatherEnabled || transportEnabled || vegetationEnabled) {
                     dataPanel.classList.remove('hidden');
                     if (weatherEnabled) {
                         // Switch to weather tab
@@ -2513,6 +2939,11 @@
                         document.querySelector('.data-tab[data-tab="weather"]').classList.add('active');
                         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                         document.getElementById('weatherTab').classList.add('active');
+                        
+                        // Update popup button state
+                        if (popupModeBtn) {
+                            popupModeBtn.classList.remove('disabled');
+                        }
                     }
                 } else {
                     dataPanel.classList.add('hidden');
@@ -2538,9 +2969,12 @@
             transportEnabled = !transportEnabled;
             sourceTransport.classList.toggle('active', transportEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
+            
             // Show/hide data panel and switch to transport tab
             if (dataPanel) {
-                if (transportEnabled || weatherEnabled) {
+                if (transportEnabled || weatherEnabled || vegetationEnabled) {
                     dataPanel.classList.remove('hidden');
                     if (transportEnabled) {
                         // Switch to transport tab
@@ -2548,6 +2982,11 @@
                         document.querySelector('.data-tab[data-tab="transport"]').classList.add('active');
                         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                         document.getElementById('transportTab').classList.add('active');
+                        
+                        // Update popup button state
+                        if (popupModeBtn) {
+                            popupModeBtn.classList.add('disabled');
+                        }
                     }
                 } else {
                     dataPanel.classList.add('hidden');
@@ -2585,6 +3024,8 @@
             vegetationEnabled = !vegetationEnabled;
             sourceVegetation.classList.toggle('active', vegetationEnabled);
             
+            // Update tab visibility
+            updateTabVisibility();
 
             
             if (vegetationEnabled) {
@@ -2597,6 +3038,11 @@
                     document.querySelector('.data-tab[data-tab="trees"]').classList.add('active');
                     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                     document.getElementById('treesTab').classList.add('active');
+                    
+                    // Update popup button state
+                    if (popupModeBtn) {
+                        popupModeBtn.classList.add('disabled');
+                    }
                 }
             } else {
                 vegetationData = [];
@@ -2608,6 +3054,12 @@
                     map.removeSource('trees-data');
                 }
                 updateTreesPanel();
+                
+                // Hide panel if no other data sources are enabled
+                const dataPanel = document.getElementById('dataPanel');
+                if (dataPanel && !weatherEnabled && !transportEnabled) {
+                    dataPanel.classList.add('hidden');
+                }
             }
         });
     }
@@ -2722,7 +3174,7 @@
         // Filter by selected species
         const filteredData = vegetationData.filter(tree => {
             if (activeSpeciesFilters.size === 0) return true;
-            return activeSpeciesFilters.has(tree.common_name || tree.species || 'Unknown');
+            return !activeSpeciesFilters.has(tree.common_name || tree.species || 'Unknown');
         });
         
         return new deck.ScatterplotLayer({
@@ -2754,17 +3206,37 @@
             onClick: (info) => {
                 if (info.object) {
                     const tree = info.object;
-                    const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 5px;">
-                        <strong>${tree.common_name || tree.species || 'Unknown Species'}</strong><br>
+                    const treeName = tree.common_name || tree.species || 'Unknown Species';
+                    // Only use scientific name (species) for FloraVeg link
+                    // Remove anything in parentheses (common name) - e.g., "Gleditsia triacanthos (Lederhülsenbaum)" -> "Gleditsia triacanthos"
+                    const scientificName = tree.species ? tree.species.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim() : null;
+                    
+                    // Only show info button if we have a valid scientific name
+                    const infoButton = scientificName && scientificName !== 'Unknown Species'
+                        ? `<div style="position: absolute; bottom: 5px; right: 5px;">
+                            <a href="https://floraveg.eu/taxon/overview/${scientificName.replace(/ /g, '%20')}" 
+                               target="_blank" 
+                               style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: #4CAF50; color: white; text-decoration: none; border-radius: 50%; font-size: 12px; font-weight: bold; font-style: italic; transition: background 0.2s;"
+                               onmouseover="this.style.background='#45a049'" 
+                               onmouseout="this.style.background='#4CAF50'"
+                               title="View detailed botanical information and images on FloraVeg.EU">
+                                i
+                            </a>
+                        </div>`
+                        : '';
+                    
+                    const html = `<div style="font-family: 'Space Grotesk', sans-serif; padding: 8px 5px 5px 5px; position: relative;">
+                        <strong>${treeName}</strong><br>
                         ${tree.height ? `Height: <b>${tree.height}m</b><br>` : ''}
                         ${tree.crown_diameter ? `Crown: <b>${tree.crown_diameter}m</b><br>` : ''}
                         ${tree.planting_year ? `Planted: <b>${tree.planting_year}</b>` : ''}
+                        ${infoButton}
                     </div>`;
                     
                     new mapboxgl.Popup({ 
                         closeButton: true,
                         closeOnClick: true,
-                        className: 'custom-popup'
+                        className: 'custom-popup tree-popup'
                     })
                         .setLngLat([tree.lon, tree.lat])
                         .setHTML(html)
@@ -2979,13 +3451,679 @@
                 content.classList.remove('active');
             });
             document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // Update popup button state based on tab
+            if (popupModeBtn) {
+                if (tabName === 'weather') {
+                    popupModeBtn.classList.remove('disabled');
+                } else {
+                    popupModeBtn.classList.add('disabled');
+                }
+            }
+            
+            // Disable popup mode when switching away from weather tab
+            if (tabName !== 'weather' && popupModeActive) {
+                popupModeActive = false;
+                if (popupModeBtn) {
+                    popupModeBtn.classList.remove('active');
+                }
+                map.getCanvas().style.cursor = '';
+                // Clear all weather popups
+                const popupsToRemove = [...weatherPopups];
+                popupsToRemove.forEach(popup => {
+                    try {
+                        if (popup && popup.isOpen()) {
+                            popup.remove();
+                        }
+                    } catch (e) {
+                        // Silently ignore errors
+                    }
+                });
+                weatherPopups = [];
+            }
         });
     });
     
     // Initialize category filter with predefined categories
     initializeCategoryFilter();
+    
+    // Initialize tab visibility (hide all tabs initially since no data sources are enabled)
+    updateTabVisibility();
 
     // Initial Data Load
     refreshMapData();
+
+    // ========================================================================
+    // PDF EXPORT FUNCTIONALITY
+    // ========================================================================
+
+    /**
+     * Capture map screenshot as base64 PNG
+     */
+    function captureMapScreenshot() {
+        try {
+            console.log('DEBUG: Capturing map screenshot...');
+            console.log('DEBUG: Current viz mode:', currentVizMode);
+            console.log('DEBUG: Markers visible:', document.querySelectorAll('.mapboxgl-marker').length);
+            
+            // Force map to resize and render fully
+            map.resize();
+            
+            // Small delay to ensure rendering is complete
+            setTimeout(() => {}, 100);
+            
+            const canvas = map.getCanvas();
+            const dataUrl = canvas.toDataURL('image/png', 0.95); // 95% quality
+            
+            console.log('DEBUG: Map screenshot captured, data length:', dataUrl.length);
+            return dataUrl;
+        } catch (error) {
+            console.error('Failed to capture map screenshot:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Capture all 4 visualization modes automatically
+     */
+    async function captureAllVisualizationModes() {
+        const screenshots = {};
+        const originalMode = currentVizMode;
+        const modes = ['mapbox', 'scatter', 'heatmap', 'hexagon'];
+        
+        console.log('DEBUG: Capturing all visualization modes...');
+        
+        for (const mode of modes) {
+            try {
+                console.log(`DEBUG: Switching to ${mode} mode...`);
+                
+                // Switch to the mode
+                setVizMode(mode);
+                
+                // Wait for rendering to complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Force render and ensure map is ready
+                map.resize();
+                
+                // Wait for map to finish rendering (tiles loaded)
+                await waitForMapToRender();
+                
+                if (mode === 'mapbox') {
+                    renderMapboxMarkers();
+                    // Extra wait for markers to render
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                } else {
+                    // Update deck.gl layers
+                    updateDeckLayers();
+                    console.log('DEBUG: Called updateDeckLayers()');
+                    
+                    // Extra wait for deck.gl layers - INCREASED
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Force deck.gl to redraw MULTIPLE times
+                    if (deckOverlay && deckOverlay.deck) {
+                        console.log('DEBUG: Forcing deck.gl redraw (1/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        console.log('DEBUG: Forcing deck.gl redraw (2/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        console.log('DEBUG: Forcing deck.gl redraw (3/3)');
+                        deckOverlay.deck.redraw(true);
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    } else {
+                        console.error('ERROR: deckOverlay or deckOverlay.deck is undefined!');
+                    }
+                }
+                
+                // Trigger repaint to ensure everything is drawn
+                map.triggerRepaint();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // Capture screenshot - handle deck.gl overlay
+                let screenshot;
+                if (mode === 'mapbox') {
+                    // For mapbox mode, capture map + DOM markers
+                    screenshot = await captureMapboxWithMarkers();
+                } else {
+                    // For deck.gl modes, composite the map and deck.gl canvases
+                    screenshot = await captureDeckGLComposite();
+                }
+                screenshots[mode] = screenshot;
+                
+                console.log(`DEBUG: Captured ${mode} screenshot, length: ${screenshot.length}`);
+            } catch (error) {
+                console.error(`Failed to capture ${mode} screenshot:`, error);
+                screenshots[mode] = null;
+            }
+        }
+        
+        // Restore original mode
+        console.log(`DEBUG: Restoring original mode: ${originalMode}`);
+        setVizMode(originalMode);
+        if (originalMode === 'mapbox') {
+            renderMapboxMarkers();
+        } else {
+            updateDeckLayers();
+        }
+        
+        console.log('DEBUG: All visualization modes captured');
+        return screenshots;
+    }
+    
+    /**
+     * Wait for map tiles to finish loading
+     */
+    function waitForMapToRender() {
+        return new Promise((resolve) => {
+            // If map is already idle (loaded), resolve immediately
+            if (map.isStyleLoaded() && !map.isMoving()) {
+                console.log('DEBUG: Map already rendered');
+                resolve();
+                return;
+            }
+            
+            // Otherwise wait for idle event
+            const onIdle = () => {
+                console.log('DEBUG: Map finished rendering');
+                map.off('idle', onIdle);
+                resolve();
+            };
+            
+            map.once('idle', onIdle);
+            
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                console.log('DEBUG: Map render timeout, proceeding anyway');
+                map.off('idle', onIdle);
+                resolve();
+            }, 5000);
+        });
+    }
+    
+    /**
+     * Capture composite image of map + deck.gl overlay
+     */
+    async function captureDeckGLComposite() {
+        try {
+            console.log('=== DEBUG: Starting deck.gl composite capture ===');
+            
+            // Get the map canvas
+            const mapCanvas = map.getCanvas();
+            console.log(`DEBUG: Map canvas dimensions: ${mapCanvas.width}x${mapCanvas.height}`);
+            
+            // Verify map canvas has content by checking pixel data
+            const mapCtx = mapCanvas.getContext('2d', { willReadFrequently: true });
+            if (mapCtx) {
+                const mapImageData = mapCtx.getImageData(0, 0, Math.min(100, mapCanvas.width), Math.min(100, mapCanvas.height));
+                const mapHasContent = mapImageData.data.some((value, index) => {
+                    // Check if there are non-transparent pixels
+                    if (index % 4 === 3) { // Alpha channel
+                        return value > 0;
+                    }
+                    return false;
+                });
+                console.log(`DEBUG: Map canvas has visible content: ${mapHasContent}`);
+            }
+            
+            // Find ALL canvases in the map container
+            const mapContainer = document.getElementById('map');
+            const allCanvases = mapContainer.querySelectorAll('canvas');
+            
+            console.log(`DEBUG: Found ${allCanvases.length} total canvas elements in map container`);
+            
+            // Log details of each canvas
+            allCanvases.forEach((canvas, index) => {
+                console.log(`DEBUG: Canvas[${index}]: ${canvas.width}x${canvas.height}, class="${canvas.className}", id="${canvas.id}"`);
+                console.log(`DEBUG: Canvas[${index}] style: ${canvas.style.cssText}`);
+            });
+            
+            // deck.gl creates a canvas that overlays the map
+            // It should be the second canvas (index 1)
+            let deckCanvas = null;
+            
+            if (allCanvases.length === 1) {
+                console.error('ERROR: Only 1 canvas found - deck.gl canvas missing!');
+                console.error('ERROR: This means deck.gl overlay is not initialized or not rendering');
+                return mapCanvas.toDataURL('image/png', 0.95);
+            }
+            
+            if (allCanvases.length > 1) {
+                // Try canvas at index 1 first (usually deck.gl)
+                deckCanvas = allCanvases[1];
+                console.log(`DEBUG: Using canvas[1] as deck.gl canvas: ${deckCanvas.width}x${deckCanvas.height}`);
+            }
+            
+            if (!deckCanvas) {
+                console.error('ERROR: deck.gl canvas not found after checking all canvases');
+                return mapCanvas.toDataURL('image/png', 0.95);
+            }
+            
+            // Check if deck.gl canvas dimensions match map canvas
+            if (deckCanvas.width !== mapCanvas.width || deckCanvas.height !== mapCanvas.height) {
+                console.warn(`WARNING: deck.gl canvas dimensions (${deckCanvas.width}x${deckCanvas.height}) don't match map canvas (${mapCanvas.width}x${mapCanvas.height})`);
+            }
+            
+            // Try to read pixel data from deck.gl canvas to verify it has content
+            // Note: WebGL canvases need to use toDataURL or read pixels differently
+            try {
+                // For WebGL canvas, we can't use getImageData, so we'll create a test image
+                const testDataUrl = deckCanvas.toDataURL('image/png', 0.1);
+                console.log(`DEBUG: deck.gl canvas toDataURL succeeded, length: ${testDataUrl.length}`);
+                
+                // If the data URL is very small, it might be empty
+                if (testDataUrl.length < 1000) {
+                    console.error('ERROR: deck.gl canvas toDataURL returned very small image - likely empty!');
+                }
+            } catch (e) {
+                console.error('ERROR: Cannot read deck.gl canvas - preserveDrawingBuffer may not be working:', e);
+            }
+            
+            // Create a composite canvas
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = mapCanvas.width;
+            compositeCanvas.height = mapCanvas.height;
+            const ctx = compositeCanvas.getContext('2d');
+            
+            // Set white background (in case map has transparency)
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+            console.log('DEBUG: Drew white background');
+            
+            // Draw map canvas first (base layer)
+            ctx.drawImage(mapCanvas, 0, 0);
+            console.log('DEBUG: Drew map canvas onto composite');
+            
+            // Draw deck.gl canvas on top (overlay)
+            ctx.drawImage(deckCanvas, 0, 0);
+            console.log('DEBUG: Drew deck.gl canvas onto composite');
+            
+            console.log('=== DEBUG: Successfully composited map and deck.gl canvases ===');
+            
+            // Convert to data URL with high quality
+            const dataUrl = compositeCanvas.toDataURL('image/png', 0.95);
+            console.log(`DEBUG: Generated composite image, length: ${dataUrl.length}`);
+            
+            // Sanity check: if composite is similar size to map-only, deck.gl might be empty
+            const mapOnlyUrl = mapCanvas.toDataURL('image/png', 0.95);
+            if (Math.abs(dataUrl.length - mapOnlyUrl.length) < 1000) {
+                console.warn('WARNING: Composite image is similar size to map-only - deck.gl layer might be empty!');
+            }
+            
+            return dataUrl;
+        } catch (error) {
+            console.error('ERROR: Failed to create composite screenshot:', error);
+            console.error(error.stack);
+            // Fallback to map canvas only
+            const canvas = map.getCanvas();
+            return canvas.toDataURL('image/png', 0.95);
+        }
+    }
+    
+    /**
+     * Capture map with Mapbox DOM markers rendered on canvas
+     */
+    async function captureMapboxWithMarkers() {
+        try {
+            console.log('DEBUG: Capturing mapbox with markers...');
+            
+            // Get the map canvas
+            const mapCanvas = map.getCanvas();
+            console.log(`DEBUG: Map canvas dimensions: ${mapCanvas.width}x${mapCanvas.height}`);
+            
+            // Create a composite canvas
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = mapCanvas.width;
+            compositeCanvas.height = mapCanvas.height;
+            const ctx = compositeCanvas.getContext('2d');
+            
+            // Draw the map canvas first
+            ctx.drawImage(mapCanvas, 0, 0);
+            console.log('DEBUG: Drew map canvas');
+            
+            // Get all marker DOM elements
+            const mapContainer = document.getElementById('map');
+            const markerElements = mapContainer.querySelectorAll('.mapboxgl-marker');
+            console.log(`DEBUG: Found ${markerElements.length} marker elements`);
+            
+            // Draw each marker on the canvas
+            let markersRendered = 0;
+            for (const markerEl of markerElements) {
+                try {
+                    // Get marker position
+                    const transform = markerEl.style.transform;
+                    const translateMatch = transform.match(/translate\((-?\d+\.?\d*)px,\s*(-?\d+\.?\d*)px\)/);
+                    
+                    if (translateMatch) {
+                        const x = parseFloat(translateMatch[1]);
+                        const y = parseFloat(translateMatch[2]);
+                        
+                        // Get the SVG inside the marker
+                        const svg = markerEl.querySelector('svg');
+                        if (svg) {
+                            // Create an image from the SVG
+                            const svgData = new XMLSerializer().serializeToString(svg);
+                            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                            const svgUrl = URL.createObjectURL(svgBlob);
+                            
+                            // Load and draw the SVG
+                            const img = new Image();
+                            await new Promise((resolve, reject) => {
+                                img.onload = () => {
+                                    // Adjust for anchor point (markers are anchored at bottom center)
+                                    const anchorX = x;
+                                    const anchorY = y - img.height;
+                                    
+                                    ctx.drawImage(img, anchorX, anchorY, img.width, img.height);
+                                    URL.revokeObjectURL(svgUrl);
+                                    markersRendered++;
+                                    resolve();
+                                };
+                                img.onerror = () => {
+                                    URL.revokeObjectURL(svgUrl);
+                                    reject(new Error('Failed to load marker SVG'));
+                                };
+                                img.src = svgUrl;
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to render marker:', error);
+                    // Continue with other markers
+                }
+            }
+            
+            console.log(`DEBUG: Successfully rendered ${markersRendered} markers on canvas`);
+            
+            // Convert to data URL
+            const dataUrl = compositeCanvas.toDataURL('image/png', 0.95);
+            console.log(`DEBUG: Generated composite image with markers, length: ${dataUrl.length}`);
+            return dataUrl;
+        } catch (error) {
+            console.error('ERROR: Failed to capture mapbox with markers:', error);
+            // Fallback to map canvas only
+            const canvas = map.getCanvas();
+            return canvas.toDataURL('image/png', 0.95);
+        }
+    }
+    
+    /**
+     * Capture heatmap visualization if available
+     */
+    function captureHeatmapView() {
+        try {
+            // Check if heatmap is currently active
+            if (currentVizMode === 'heatmap' || currentVizMode === 'deck') {
+                const canvas = map.getCanvas();
+                return canvas.toDataURL('image/png', 0.95);
+            }
+            return null;
+        } catch (error) {
+            console.error('Failed to capture heatmap:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Calculate statistics from current context
+     */
+    function calculateStatistics() {
+        if (!lastContextRecords || lastContextRecords.length === 0) {
+            console.log('DEBUG: No context records available for statistics');
+            return {
+                total_locations: 0,
+                average_rating: 0,
+                top_rated: { name: 'N/A', rating: 0 },
+                category_breakdown: {}
+            };
+        }
+        
+        console.log(`DEBUG: Calculating statistics from ${lastContextRecords.length} records`);
+
+        let totalRating = 0;
+        let ratingCount = 0;
+        let topRated = { name: 'N/A', rating: 0 };
+        const categoryBreakdown = {};
+
+        lastContextRecords.forEach(record => {
+            // Count by category - extract category type
+            let categoryName = 'Unknown';
+            if (record.c) {
+                if (typeof record.c === 'object' && record.c.type) {
+                    categoryName = record.c.type;
+                } else if (typeof record.c === 'string') {
+                    categoryName = record.c;
+                }
+            }
+            categoryBreakdown[categoryName] = (categoryBreakdown[categoryName] || 0) + 1;
+
+            // Calculate average rating - extract from pg.grade
+            if (record.pg) {
+                let rating = null;
+                if (typeof record.pg === 'object' && record.pg.grade !== undefined) {
+                    rating = parseFloat(record.pg.grade);
+                } else if (typeof record.pg === 'number') {
+                    rating = parseFloat(record.pg);
+                }
+                
+                if (rating !== null && !isNaN(rating)) {
+                    totalRating += rating;
+                    ratingCount++;
+
+                    // Track top rated
+                    if (rating > topRated.rating) {
+                        topRated = {
+                            name: record.p?.location || record.p?.name || 'Unknown',
+                            rating: rating
+                        };
+                    }
+                }
+            }
+        });
+
+        return {
+            total_locations: lastContextRecords.length,
+            average_rating: ratingCount > 0 ? parseFloat((totalRating / ratingCount).toFixed(1)) : 0,
+            top_rated: topRated,
+            category_breakdown: categoryBreakdown
+        };
+    }
+
+    /**
+     * Get conversation history for PDF
+     */
+    function getConversationHistory() {
+        const messages = chatWindow.querySelectorAll('.user, .assistant:not(.pending):not(.error)');
+        const conversation = [];
+
+        messages.forEach(msg => {
+            if (msg.classList.contains('user')) {
+                conversation.push({
+                    role: 'user',
+                    content: msg.textContent.trim()
+                });
+            } else if (msg.classList.contains('assistant')) {
+                // Remove the "Download Report" button text from content
+                const clone = msg.cloneNode(true);
+                const btn = clone.querySelector('.message-export-btn');
+                if (btn) btn.remove();
+                
+                conversation.push({
+                    role: 'assistant',
+                    content: clone.textContent.trim()
+                });
+            }
+        });
+
+        console.log(`DEBUG: Extracted ${conversation.length} messages for PDF`);
+        return conversation.slice(-10); // Last 10 messages
+    }
+
+    /**
+     * Get enabled data sources
+     */
+    function getEnabledDataSources() {
+        const sources = [];
+        document.querySelectorAll('.data-source-btn.active').forEach(btn => {
+            sources.push(btn.dataset.source);
+        });
+        return sources;
+    }
+
+    /**
+     * Format locations for PDF
+     */
+    function formatLocationsForPDF() {
+        console.log(`DEBUG formatLocationsForPDF: lastContextRecords exists: ${!!lastContextRecords}`);
+        console.log(`DEBUG formatLocationsForPDF: lastContextRecords length: ${lastContextRecords ? lastContextRecords.length : 0}`);
+        
+        if (!lastContextRecords || lastContextRecords.length === 0) {
+            console.log('DEBUG formatLocationsForPDF: Returning empty array');
+            return [];
+        }
+
+        console.log(`DEBUG formatLocationsForPDF: First record:`, lastContextRecords[0]);
+        
+        // Return ALL locations for rating distribution analysis
+        // The PDF backend will show top 15 in detail, but analyze all for charts
+        return lastContextRecords.map(record => {
+            // Extract rating from pg object
+            let rating = 'N/A';
+            if (record.pg) {
+                if (typeof record.pg === 'object' && record.pg.grade !== undefined) {
+                    rating = parseFloat(record.pg.grade).toFixed(1);
+                } else if (typeof record.pg === 'number') {
+                    rating = parseFloat(record.pg).toFixed(1);
+                }
+            }
+            
+            // Extract category name from c object
+            let categoryName = 'Unknown';
+            if (record.c) {
+                if (typeof record.c === 'object' && record.c.type) {
+                    categoryName = record.c.type;
+                } else if (typeof record.c === 'string') {
+                    categoryName = record.c;
+                }
+            }
+            
+            // Extract place name
+            const placeName = record.p?.location || record.p?.name || 'Unknown Location';
+            
+            // Extract comments - handle both array of objects and direct co field
+            let comments = [];
+            if (record.co) {
+                if (Array.isArray(record.co)) {
+                    comments = record.co.map(c => {
+                        if (typeof c === 'object' && c.text) {
+                            return { text: c.text };
+                        } else if (typeof c === 'string') {
+                            return { text: c };
+                        }
+                        return null;
+                    }).filter(c => c !== null);
+                } else if (typeof record.co === 'object' && record.co.text) {
+                    comments = [{ text: record.co.text }];
+                } else if (typeof record.co === 'string') {
+                    comments = [{ text: record.co }];
+                }
+            }
+            
+            console.log(`Location: ${placeName}, Category: ${categoryName}, Rating: ${rating}, Comments: ${comments.length}`);
+            
+            return {
+                name: placeName,
+                address: record.precise_address || record.p?.location || 'Address not available',
+                category: categoryName,
+                rating: rating,
+                comments: comments
+            };
+        });
+    }
+
+    /**
+     * Export PDF report
+     */
+    async function exportPdfReport(buttonElement) {
+        // Disable button during export
+        const originalText = buttonElement.innerHTML;
+        buttonElement.disabled = true;
+        buttonElement.innerHTML = '⏳ Capturing visualizations...';
+
+        try {
+            // Capture ALL 4 visualization modes
+            buttonElement.innerHTML = '⏳ Capturing all map views...';
+            const allScreenshots = await captureAllVisualizationModes();
+            
+            if (!allScreenshots || Object.keys(allScreenshots).length === 0) {
+                throw new Error('Failed to capture map visualizations');
+            }
+
+            // Collect data
+            buttonElement.innerHTML = '⏳ Collecting data...';
+            const statistics = calculateStatistics();
+            const conversation = getConversationHistory();
+            const dataSources = getEnabledDataSources();
+            const locations = formatLocationsForPDF();
+
+            // Prepare export payload with all screenshots
+            buttonElement.innerHTML = '⏳ Generating PDF...';
+            const exportPayload = {
+                conversation: conversation,
+                map_screenshots: allScreenshots,  // All 4 visualization screenshots
+                locations: locations,
+                statistics: statistics,
+                data_sources: dataSources,
+                timestamp: new Date().toISOString()
+            };
+
+            // Send to backend
+            const response = await fetch('/export-pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(exportPayload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to generate PDF');
+            }
+
+            // Get PDF blob
+            const blob = await response.blob();
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `city_layers_report_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            // Show success message
+            appendMessage('system', '✅ PDF report exported successfully!');
+
+        } catch (error) {
+            console.error('PDF export failed:', error);
+            appendMessage('system', `❌ PDF export failed: ${error.message}`);
+        } finally {
+            // Re-enable button
+            buttonElement.disabled = false;
+            buttonElement.innerHTML = originalText;
+        }
+    }
+
+    // ========================================================================
+    // END OF PDF EXPORT FUNCTIONALITY
+    // ========================================================================
 
 })();

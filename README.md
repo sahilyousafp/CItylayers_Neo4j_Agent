@@ -21,7 +21,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 - **Scatter Plot**: Color-coded by category
 - **Heatmap**: Grade-based intensity (1-100 scale) ⭐ NEW
 - **Arc Network**: High-grade location connections
-- **Choropleth**: H3 hexagon-based regional analysis
+- **Hexagon**: H3 hexagon-based regional analysis
 
 ### Data & Queries
 - Natural language to Cypher query conversion
@@ -146,7 +146,7 @@ Scrapes websites and recommends visualizations.
 
 **Features:**
 - Location extraction from text
-- Visualization recommendations (Scatter, Heatmap, Hexagon, Choropleth)
+- Visualization recommendations (Scatter, Heatmap, Hexagon)
 
 ## 🎯 Common Issues & Solutions
 

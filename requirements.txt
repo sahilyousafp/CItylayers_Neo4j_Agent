@@ -39,3 +39,7 @@ meteostat==1.6.7
 
 # Markdown rendering
 markdown2==2.4.10
+
+# PDF generation
+reportlab>=4.0.0
+pillow>=10.0
