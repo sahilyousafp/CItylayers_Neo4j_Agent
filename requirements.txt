@@ -1,16 +1,45 @@
-langchain==0.1.20
-langchain-google-genai==1.0.3
-langchain-neo4j
-langchain-core==0.1.52
-langchain-community==0.0.38
-google-generativeai==0.5.4
+# Core LangChain
+langchain==0.3.0
+langchain-google-genai==2.0.0
+langchain-neo4j==0.2.0
+langchain-core==0.3.0
+langchain-community==0.3.0
+
+# Google AI
+google-generativeai==0.8.0
+
+# Neo4j
 neo4j==5.19.0
+
+# Data handling
 pydantic==2.7.1
-geopandas==0.14.4
 pandas==2.2.2
+
+# Geospatial
+geopandas==0.14.4
 shapely==2.0.4
-matplotlib==3.8.4
 fiona==1.9.6
 pyproj==3.6.1
+
+# Web framework
 Flask==3.0.3
+python-dotenv==1.0.0
+
+# Visualization
 pydeck==0.9.1
+matplotlib==3.8.4
+
+# Web scraping
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# Weather data
+meteostat==1.6.7
+
+# Markdown rendering
+markdown2==2.4.10
+
+# PDF generation
+reportlab>=4.0.0
+pillow>=10.0
