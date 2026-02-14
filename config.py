@@ -5,10 +5,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    # Neo4j
-    NEO4J_URI = os.environ.get("NEO4J_URI", "neo4j+s://02f54a39.databases.neo4j.io")
-    NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME", "neo4j")
+    # Neo4j - NO DEFAULT CREDENTIALS FOR SECURITY
+    NEO4J_URI = os.environ.get("NEO4J_URI")
+    NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
     NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
+    
+    # Validate critical credentials are present
+    if not NEO4J_URI or not NEO4J_PASSWORD:
+        raise ValueError("NEO4J_URI and NEO4J_PASSWORD must be set in environment variables")
 
     # LLM Configuration
     LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")  # "ollama" or "google"
@@ -21,11 +25,15 @@ class Config:
     GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
     GOOGLE_MODEL = os.environ.get("GOOGLE_MODEL", "gemini-flash-latest")
 
-    # Flask
-    FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+    # Flask - Require secret key in production
+    FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY")
+    if not FLASK_SECRET_KEY:
+        raise ValueError("FLASK_SECRET_KEY must be set in environment variables")
 
-    # Mapbox
+    # Mapbox - Required for map functionality
     MAPBOX_ACCESS_TOKEN = os.environ.get("MAPBOX_ACCESS_TOKEN")
+    if not MAPBOX_ACCESS_TOKEN:
+        raise ValueError("MAPBOX_ACCESS_TOKEN must be set in environment variables")
 
     # Agent Configuration
     # You can add more specific agent configs here
